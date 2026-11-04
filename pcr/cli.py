@@ -1,13 +1,23 @@
 """Commandes de l'administrateur :  python -m pcr <commande>"""
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from .admin_file import apply_admin_file, export_admin_file
 from .config import load_config
 from .referentiel import Referentiel
+from .kobo_form import KoboClient, KoboError, activities_csv_rows, build_xlsform, sync_to_kobo, write_activities_csv
 from .seed import seed, write_report
 from .store import Base
+
+
+def _load_env(path: Path) -> None:
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip() and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def main(argv=None) -> int:
@@ -24,6 +34,11 @@ def main(argv=None) -> int:
     sub.choices["historique"].add_argument("code")
     sub.add_parser("verifier", help="contrôles d'intégrité (unicité des codes, séquences, compteurs)")
     sub.add_parser("lister", help="liste des activités")
+    sub.add_parser("kobo-formulaire", help="génère le questionnaire XLSForm à importer dans Kobo")
+    sub.add_parser("kobo-csv", help="génère la liste des activités (activites.csv) sans l'envoyer")
+    k = sub.add_parser("kobo-sync", help="envoie la liste des activités à Kobo et redéploie le formulaire")
+    k.add_argument("--sans-redeploiement", action="store_true")
+    k.add_argument("--env", default=".env")
     a = ap.parse_args(argv)
 
     cfg = load_config(a.config)
@@ -57,6 +72,24 @@ def main(argv=None) -> int:
         problems = ref.verify()
         print("Référentiel conforme." if not problems else "\n".join(problems))
         return 1 if problems else 0
+    elif a.cmd == "kobo-formulaire":
+        print(build_xlsform(cfg.path("kobo_formulaire")))
+    elif a.cmd == "kobo-csv":
+        print(f"{write_activities_csv(ref, cfg.path('kobo_csv'))} activités -> {cfg.path('kobo_csv')}")
+    elif a.cmd == "kobo-sync":
+        _load_env(Path(a.env))
+        for var in ("KOBO_ASSET_UID", "KOBO_TOKEN"):
+            if not os.environ.get(var):
+                print(f"Variable manquante : {var} (voir .env.example)")
+                return 2
+        write_activities_csv(ref, cfg.path("kobo_csv"))
+        try:
+            client = KoboClient(os.environ.get("KOBO_URL", "https://kf.kobotoolbox.org"), os.environ["KOBO_ASSET_UID"], os.environ["KOBO_TOKEN"])
+            res = sync_to_kobo(client, activities_csv_rows(ref), redeploy=not a.sans_redeploiement)
+        except KoboError as e:
+            print(f"ÉCHEC : {e}")
+            return 1
+        print(f"Liste envoyée : {res['activites']} activités ({res['fichier']}), redéploiement : {'oui' if res['redeploye'] else 'non'}.")
     elif a.cmd == "lister":
         for x in ref.activities():
             print(f"{x['CODE_ACTIVITE']}  {x['Statut']:<8} {x['Departement'] or '—':<22} {x['Entreprise'] or '—'}")
