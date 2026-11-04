@@ -1,4 +1,4 @@
-# Suivi des activités PCR-CI — Phase 2 : référentiel des activités
+# Suivi des activités PCR-CI — Phases 2-3 : référentiel des activités et questionnaire Kobo
 
 Base de données = `data/base_pcr.xlsx` (ne pas éditer à la main). L'administrateur travaille dans `data/referentiel_admin.xlsx`.
 
@@ -7,6 +7,9 @@ Base de données = `data/base_pcr.xlsx` (ne pas éditer à la main). L'administr
     python -m pcr exporter       # réécrit le fichier d'administration depuis la base
     python -m pcr historique BSBAF001
     python -m pcr verifier       # unicité des codes, séquences, compteurs
+    python -m pcr kobo-formulaire   # génère le questionnaire Kobo (Phase 3)
+    python -m pcr kobo-csv          # génère la liste des activités
+    python -m pcr kobo-sync         # envoie la liste à Kobo et redéploie (voir docs/kobo_mise_en_place.md)
     python -m pytest -q tests
 
 Règles : code = catégorie(2) + région(3) + numéro(3), séquence propre à chaque couple catégorie+région, jamais réutilisé ;
