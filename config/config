@@ -1,0 +1,36 @@
+# Configuration centrale du système de suivi PCR-CI.
+# Ajouter une catégorie ou une région = ajouter une ligne ici, sans toucher au code.
+
+administrateur: "Administrateur PCR-CI"      # nom écrit dans l'historique des modifications
+
+chemins:
+  base: data/base_pcr.xlsx                   # base de données (source de vérité)
+  fichier_admin: data/referentiel_admin.xlsx # fichier d'édition du référentiel par l'administrateur
+  sauvegardes: data/sauvegardes
+
+# Catégories confirmées (2 lettres). Une matrice Word par catégorie (renseignée en Phase 5).
+categories:
+  BS:
+    nom: Blocs sanitaires
+    matrice_word: null
+  MR:
+    nom: Marchés ruraux
+    matrice_word: null
+
+# Régions (3 lettres)
+regions:
+  BAF: Bafing
+  BAG: Bagoué
+  BER: Béré
+  BUN: Bounkani
+  FOL: Folon
+  GON: Gontougo
+  HAM: Hambol
+  KAB: Kabadougou
+  POR: Poro
+  TCH: Tchologo
+  WOR: Worodougou
+
+# Contrôles de cohérence des dates (import et vérifications)
+controles:
+  tolerance_jours_fin_previsionnelle: 5      # écart toléré entre la fin prévue du Word et début + délai en mois calendaires
