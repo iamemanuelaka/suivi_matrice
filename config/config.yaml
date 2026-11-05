@@ -7,6 +7,8 @@ chemins:
   base: data/base_pcr.xlsx                   # base de données (source de vérité)
   fichier_admin: data/referentiel_admin.xlsx # fichier d'édition du référentiel par l'administrateur
   sauvegardes: data/sauvegardes
+  sorties: sorties                           # documents générés (Word, Excel)
+  dashboard_modele: modeles/MATRICE_DE_SUIVI_DES_ACTIVITES_modele.xlsx
   kobo_csv: data/kobo/activites.csv          # liste des activités envoyée à Kobo (fichier média du formulaire)
   kobo_formulaire: kobo/questionnaire_suivi_pcr.xlsx
 
@@ -14,10 +16,18 @@ chemins:
 categories:
   BS:
     nom: Blocs sanitaires
-    matrice_word: null
+    convention_delai: calendaire      # fin = début + N mois calendaires (comme EDATE d'Excel)
+    fichier_word: MATRICE_DE_SUIVI_DES_BLOCS_SANITAIRES
+    titre_1: "CELLULE SUIVI OPERATIONNEL – BLOCS SANITAIRES"
+    titre_2: "ETAT D’AVANCEMENT DES TRAVAUX D’AMENAGEMENT DANS LES ECOLES ET CENTRES DE SANTE"
+    pied_de_page: "ETAT D’AVANCEMENT DES TRAVAUX D’AMENAGEMENT DES BLOCS SANITAIRES"
   MR:
     nom: Marchés ruraux
-    matrice_word: null
+    convention_delai: jours_30        # fin = début + 30 j x N : c'est la règle observée dans la matrice Word des MR ; passer à "calendaire" pour harmoniser
+    fichier_word: MATRICE_DE_SUIVI_DES_MARCHES_RURAUX
+    titre_1: "CELLULE SUIVI OPERATIONNEL – BLOCS SANITAIRES ET MARCHES RURAUX"
+    titre_2: "ETAT D’AVANCEMENT DES TRAVAUX D’AMENAGEMENT DE MARCHES RURAUX"
+    pied_de_page: "ETAT D’AVANCEMENT DES TRAVAUX D’AMENAGEMENT DES MARCHES RURAUX"
 
 # Régions (3 lettres)
 regions:
@@ -35,4 +45,11 @@ regions:
 
 # Contrôles de cohérence des dates (import et vérifications)
 controles:
+  date_etat_initial: "2026-10-25"          # date de la revue des matrices Word (suivi de référence)
   tolerance_jours_fin_previsionnelle: 5      # écart toléré entre la fin prévue du Word et début + délai en mois calendaires
+  seuil_alerte_taux: 30                      # alerte : taux d'exécution < 30 %
+  seuil_alerte_delai: 50                     # ET délai consommé >= 50 % (mêmes seuils que le tableau de bord)
+
+email:
+  destinataires: []                          # ou variable d'environnement MAIL_TO (adresses séparées par des virgules)
+  objet: "Suivi des activités PCR-CI – situation au {date}"
