@@ -1,6 +1,6 @@
 # Rapport du chargement initial
 
-42 activités créées (26 blocs sanitaires, 16 marchés ruraux). 26 avec au moins un point à vérifier.
+42 activités créées (26 blocs sanitaires, 16 marchés ruraux). 16 avec au moins un point à vérifier.
 Contrôle d'intégrité du référentiel : conforme.
 
 Numéro d'ordre de service : absent des matrices Word, donc vide pour toutes les activités (à compléter dans le fichier d'administration).
@@ -83,46 +83,16 @@ Numéro d'ordre de service : absent des matrices Word, donc vide pour toutes les
 - localités non reprises : l'Excel place ce montant à « DIKODOUGOU » (Word : « Korhogo »)
 
 **BSWOR003** (Séguéla, NOUVEAUX SERVICES INTERNATINALES SARL)
-- INCOHÉRENT : fin prévue du Word 24/12/2026 ≠ début 24/12/2026 + 4 mois (24/04/2027) : écart de 121 j. Date de début non enregistrée (aucun indicateur de délai tant que non confirmée).
-
-**MRBER001** (Dianra-Village / Mankono, BTP BUILDING)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 16/01/2027)
-
-**MRBUN001** (Téhini / Doropo, MAHDI SERVICES)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 08/01/2027)
-
-**MRFOL001** (Kaniasso, METALBAT-CI)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 21/01/2027)
-
-**MRGON001** (Bondoukou / Tanda, 3ICI)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 19/12/2026)
-
-**MRHAM001** (Katiola, DEMBA GROUP)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 24/12/2026)
+- INCOHÉRENT : fin prévue du Word 24/12/2026 ≠ début 24/12/2026 + 4 mois [calendaire] (24/04/2027) : écart de 121 j. Date de début non enregistrée (aucun indicateur de délai tant que non confirmée).
 
 **MRKAB001** (Odienné, MEGA-STRUCTURE)
-- INCOHÉRENT : fin prévue du Word 24/12/2026 ≠ début 18/09/2026 + 4 mois (18/01/2027) : écart de 25 j. Date de début non enregistrée (aucun indicateur de délai tant que non confirmée).
-
-**MRKAB002** (Odienné, ECZ-TP)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 28/01/2027)
-
-**MRPOR001** (Dikodougou, DAF MULTISERVICES)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 17/01/2027)
-
-**MRPOR002** (Korhogo, KANZY NOUVELLE)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 28/12/2026)
+- INCOHÉRENT : fin prévue du Word 24/12/2026 ≠ début 18/09/2026 + 4 mois [jours_30] (16/01/2027) : écart de 23 j. Date de début non enregistrée (aucun indicateur de délai tant que non confirmée).
 
 **MRPOR003** (Korhogo, ETS MAGIC SERVICES)
 - début des travaux absent du Word : aucun indicateur de délai tant qu'il n'est pas renseigné
 
 **MRTCH001** (Ferké, ECF)
-- écart de +4 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 10/01/2027)
-
-**MRTCH002** (Ouangolodougou, DMS)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 14/01/2027)
-
-**MRWOR001** (Séguéla, ECOBATIM)
-- écart de +2 j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : 29/01/2027)
+- écart de +2 j entre la fin prévue du Word et le calcul avec la convention du projet (fin calculée : 08/01/2027)
 
 **MRBAF001** (Touba, titulaire non renseigné)
 - début des travaux absent du Word : aucun indicateur de délai tant qu'il n'est pas renseigné
