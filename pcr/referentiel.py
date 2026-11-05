@@ -129,7 +129,7 @@ class Referentiel:
         values["Statut"] = values["Statut"] or "Actif"
         code = self._next_code(cat, reg)
         row = {"CODE_ACTIVITE": code, "Categorie": cat, "Region": reg, **values,
-               "Date_Fin_Previsionnelle": fin_previsionnelle(values["Date_Debut"], values["Delai_Mois"]),
+               "Date_Fin_Previsionnelle": fin_previsionnelle(values["Date_Debut"], values["Delai_Mois"], self.cfg.conventions[cat]),
                "Date_Creation": now, "Date_Modification": now}
         self.base.append("Activites", row)
         self._log(code, "(création)", None, code, user, now)
@@ -160,7 +160,7 @@ class Referentiel:
             return []
         merged = {**{f: act[f] for f in EDITABLE}, **{f: n for f, _, n in done}}
         update = {f: n for f, _, n in done}
-        update["Date_Fin_Previsionnelle"] = fin_previsionnelle(merged["Date_Debut"], merged["Delai_Mois"])
+        update["Date_Fin_Previsionnelle"] = fin_previsionnelle(merged["Date_Debut"], merged["Delai_Mois"], self.cfg.conventions[act["Categorie"]])
         update["Date_Modification"] = now
         self.base.update("Activites", act["_r"], update)
         for f, old, new in done:

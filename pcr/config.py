@@ -19,6 +19,7 @@ class Config:
     def __init__(self, data: dict, root: Path):
         self.data, self.root = data, root
         self.categories = {k: v["nom"] for k, v in data["categories"].items()}
+        self.conventions = {k: v.get("convention_delai", "calendaire") for k, v in data["categories"].items()}
         self.regions = dict(data["regions"])
         self._cat_idx = {normalize(k): k for k in self.categories} | {normalize(v): k for k, v in self.categories.items()}
         self._reg_idx = {normalize(k): k for k in self.regions} | {normalize(v): k for k, v in self.regions.items()}
@@ -30,6 +31,14 @@ class Config:
     @property
     def tolerance_jours(self) -> int:
         return int(self.data.get("controles", {}).get("tolerance_jours_fin_previsionnelle", 5))
+
+    def category(self, cat: str) -> dict:
+        return self.data["categories"][cat]
+
+    @property
+    def date_etat_initial(self):
+        from datetime import date
+        return date.fromisoformat(str(self.data.get("controles", {}).get("date_etat_initial", "2026-10-25")))
 
     def path(self, key: str) -> Path:
         return self.root / self.data["chemins"][key]

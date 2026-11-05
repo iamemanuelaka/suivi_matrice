@@ -20,6 +20,7 @@ SCHEMA = {
     "Suivi_Activites": [
         "ID_SOUMISSION_KOBO", "CODE_ACTIVITE", "Date_Actualisation", "Observations_Techniques", "Taux_Execution_Physique",
         "Commentaires", "Difficultes", "Recommandations", "Date_Importation", "Statut_Traitement", "Motif_Rejet",
+        "Nom_Agent", "Total_Facture", "Source",
     ],
     "Historique_Modifications": [
         "ID_MODIFICATION", "CODE_ACTIVITE", "Champ_Modifie", "Ancienne_Valeur", "Nouvelle_Valeur", "Date_Modification", "Utilisateur",
@@ -68,7 +69,15 @@ class Base:
                 ws.column_dimensions[cell.column_letter].width = WIDTHS.get(h, 18)
             ws.freeze_panes = "B2" if name == "Activites" else "A2"
             return
-        found = [c.value for c in self.wb[name][1]][: len(cols)]
+        ws = self.wb[name]
+        found = [c.value for c in ws[1] if c.value is not None]
+        if len(found) < len(cols) and found == cols[: len(found)]:          # migration : colonnes ajoutées à la fin
+            for c in range(len(found) + 1, len(cols) + 1):
+                cell = ws.cell(1, c, cols[c - 1])
+                cell.font, cell.fill = Font(name="Arial", bold=True, color="FFFFFF"), HEADER_FILL
+                ws.column_dimensions[cell.column_letter].width = WIDTHS.get(cols[c - 1], 18)
+            return
+        found = found[: len(cols)]
         if found != cols:
             raise ValueError(f"Feuille {name} : en-têtes inattendus {found} (attendu {cols}). Structure modifiée à la main ?")
 

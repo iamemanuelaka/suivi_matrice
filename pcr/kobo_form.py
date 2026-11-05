@@ -208,6 +208,21 @@ class KoboClient:
         self._upload(filename, content)
         return "remplacé"
 
+    def submissions(self) -> list[dict]:
+        """Toutes les soumissions du projet (pagination suivie jusqu'au bout)."""
+        out, url = [], f"{self.base}/api/v2/assets/{self.uid}/data/?format=json&limit=1000"
+        while url:
+            try:
+                r = self.s.get(url, timeout=60)
+            except requests.RequestException as e:
+                raise KoboError(f"Kobo injoignable : {e}") from e
+            if r.status_code != 200:
+                raise KoboError(f"Récupération des soumissions impossible (HTTP {r.status_code}) : {_hint(r.status_code)}")
+            payload = r.json()
+            out.extend(payload.get("results", []))
+            url = payload.get("next")
+        return out
+
     def redeploy(self) -> str:
         asset = self.s.get(f"{self.base}/api/v2/assets/{self.uid}/?format=json", timeout=60)
         if asset.status_code != 200:

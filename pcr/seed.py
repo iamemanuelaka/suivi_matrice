@@ -112,15 +112,15 @@ def seed(ref: Referentiel, sources: list[tuple[str, Path]], excel_path=None) -> 
             flags.append(f"montant identique à celui de : {', '.join(map(str, autres))} (erreur de copie possible)")
         # fin prévue du Word vs début + délai en mois calendaires
         incoherent = False
-        debut, calc = a["Date_Debut"], fin_previsionnelle(a["Date_Debut"], a["Delai_Mois"])
+        debut, calc = a["Date_Debut"], fin_previsionnelle(a["Date_Debut"], a["Delai_Mois"], ref.cfg.conventions[cat])
         ecart = (calc - a["_fin_word"]).days if calc and a["_fin_word"] else None
         if ecart is not None and abs(ecart) > tol:
-            flags.append(f"INCOHÉRENT : fin prévue du Word {a['_fin_word']:%d/%m/%Y} ≠ début {debut:%d/%m/%Y} + {a['Delai_Mois']} mois "
+            flags.append(f"INCOHÉRENT : fin prévue du Word {a['_fin_word']:%d/%m/%Y} ≠ début {debut:%d/%m/%Y} + {a['Delai_Mois']} mois [{ref.cfg.conventions[cat]}] "
                          f"({calc:%d/%m/%Y}) : écart de {ecart} j. Date de début non enregistrée (aucun indicateur de délai tant que non confirmée).")
             a["Date_Debut"] = None
             incoherent = True
         elif ecart:
-            flags.append(f"écart de {ecart:+d} j entre la fin prévue du Word et le calcul en mois calendaires (fin calculée : {calc:%d/%m/%Y})")
+            flags.append(f"écart de {ecart:+d} j entre la fin prévue du Word et le calcul avec la convention du projet (fin calculée : {calc:%d/%m/%Y})")
         if a["Date_Debut"] is None and not incoherent:
             flags.append("début des travaux absent du Word : aucun indicateur de délai tant qu'il n'est pas renseigné")
         # localités des BS : depuis l'Excel seulement si montant ET département concordent
