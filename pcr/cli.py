@@ -9,7 +9,7 @@ from .admin_file import apply_admin_file, export_admin_file
 from .config import load_config
 from .referentiel import Referentiel
 from .kobo_form import KoboClient, KoboError, activities_csv_rows, build_xlsform, sync_to_kobo, write_activities_csv
-from .baseline import import_baseline
+from .baseline import import_baseline, import_baseline_from_excel
 from .ingest import ingest, set_statut
 from .seed import seed, write_report
 from .excel_gen import generate_dashboard
@@ -17,14 +17,12 @@ from .pipeline import load_json, run as run_pipeline
 from .word_gen import generate_all
 from .store import Base
 
-
 def _load_env(path: Path) -> None:
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip() and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="pcr", description="Référentiel des activités PCR-CI")
@@ -34,19 +32,24 @@ def main(argv=None) -> int:
     s.add_argument("--bs", required=True), s.add_argument("--mr", required=True)
     s.add_argument("--excel", help="ancienne matrice Excel (lecture seule, pour les localités des BS)")
     s.add_argument("--rapport", default="docs/rapport_chargement_initial.md")
+    cr = sub.add_parser("charger-reference", help="importe l'état de référence (baseline) depuis Excel dans une base existante (idempotent, sans doublon)")
+    cr.add_argument("--excel", required=True, help="chemin vers la matrice Excel de référence (ex: MATRICE_DE_SUIVI_DES_ACTIVITES_du_28-10-26.xlsx)")
     sub.add_parser("exporter", help="(ré)écrit le fichier d'administration depuis la base")
     sub.add_parser("appliquer", help="applique le fichier d'administration à la base (sauvegarde avant écriture)")
-    h = sub.add_parser("historique", help="historique des modifications d'une activité"), 
-    sub.choices["historique"].add_argument("code")
+    h = sub.add_parser("historique", help="historique des modifications d'une activité")
+    h.add_argument("code")
     sub.add_parser("verifier", help="contrôles d'intégrité (unicité des codes, séquences, compteurs)")
     sub.add_parser("lister", help="liste des activités")
     r = sub.add_parser("recuperer", help="récupère les soumissions Kobo et les intègre (doublons ignorés, invalides conservées)")
     r.add_argument("--from-json", help="fichier JSON de soumissions (test hors ligne / démonstration)")
     r.add_argument("--env", default=".env")
-    sv = sub.add_parser("suivis", help="liste des suivis reçus"); sv.add_argument("--statut", choices=["VALIDE", "A_VERIFIER", "REJETE"])
+    sv = sub.add_parser("suivis", help="liste des suivis reçus")
+    sv.add_argument("--statut", choices=["VALIDE", "A_VERIFIER", "REJETE"])
     for name, hp in (("valider", "valide une soumission « à vérifier »"), ("rejeter", "rejette une soumission")):
-        c = sub.add_parser(name, help=hp); c.add_argument("id_kobo")
-        if name == "rejeter": c.add_argument("motif")
+        c = sub.add_parser(name, help=hp)
+        c.add_argument("id_kobo")
+        if name == "rejeter":
+            c.add_argument("motif")
     w = sub.add_parser("generer-word", help="génère les matrices Word (une par catégorie) depuis la base")
     w.add_argument("--au", help="date de situation JJ/MM/AAAA (défaut : aujourd'hui)")
     vw = sub.add_parser("verifier-word", help="génère les Word et les compare aux matrices d'origine (rapport de fidélité)")
@@ -82,6 +85,16 @@ def main(argv=None) -> int:
         for w in warns:
             print("  ! " + w)
         print(f"{len(rows)} activités créées. Rapport : {a.rapport}. Fichier d'administration : {cfg.path('fichier_admin')}")
+    elif a.cmd == "charger-reference":
+        excel_path = Path(a.excel)
+        if not excel_path.exists():
+            print(f"Erreur : le fichier {excel_path} n'existe pas.")
+            return 1
+        warns = import_baseline_from_excel(ref, excel_path, cfg.date_etat_initial)
+        base.save(backups)
+        for w in warns:
+            print("  ! " + w)
+        print("Référence chargée avec succès. Les suivis manquants ont été ajoutés sans créer de doublons.")
     elif a.cmd == "exporter":
         print(export_admin_file(ref, cfg.path("fichier_admin")))
     elif a.cmd == "appliquer":
@@ -93,7 +106,7 @@ def main(argv=None) -> int:
             return 1
         if rep.created or rep.updated:
             base.save(backups)
-            export_admin_file(ref, cfg.path("fichier_admin"))   # pour voir les codes générés
+            export_admin_file(ref, cfg.path("fichier_admin"))
     elif a.cmd == "historique":
         for r in ref.history(a.code.upper()):
             print(f"{r['Date_Modification']:%d/%m/%Y %H:%M}  {r['Utilisateur']}  {r['Champ_Modifie']} : {r['Ancienne_Valeur']!r} -> {r['Nouvelle_Valeur']!r}")
@@ -200,7 +213,6 @@ def main(argv=None) -> int:
         for x in ref.activities():
             print(f"{x['CODE_ACTIVITE']}  {x['Statut']:<8} {x['Departement'] or '—':<22} {x['Entreprise'] or '—'}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
