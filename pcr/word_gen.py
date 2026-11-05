@@ -26,20 +26,16 @@ FONT, SIZE = "Arial", 9
 WIDTHS_CM = (10.2, 9.8, 6.7)
 NUM_ID = 90
 
-
 def money(n) -> str:
     return f"{n:,}".replace(",", " ")
-
 
 def pct(v, decimals=None) -> str:
     if v is None:
         return ""
     return f"{v:.{decimals}f}%" if decimals is not None else f"{v:g}%"
 
-
 def fdate(d) -> str:
     return f"{d:%d/%m/%Y}" if d else ""
-
 
 # --------------------------------------------------------------------------
 # Choix des données
@@ -54,13 +50,11 @@ def latest_valid(ref: Referentiel) -> dict:
             best[r["CODE_ACTIVITE"]] = (key, r)
     return {c: v[1] for c, v in best.items()}
 
-
 def ordered_activities(ref: Referentiel, cat: str) -> list[dict]:
     """Activités actives de la catégorie : celles dont le titulaire est connu d'abord, puis les marchés pas encore attribués ;
     dans chaque groupe, régions par ordre alphabétique puis numéro d'ordre."""
     acts = [a for a in ref.activities() if a["Categorie"] == cat and a["Statut"] == "Actif"]
     return sorted(acts, key=lambda a: (0 if a["Entreprise"] else 1, normalize(ref.cfg.regions[a["Region"]]), a["CODE_ACTIVITE"]))
-
 
 def build_view(ref: Referentiel, a: dict, s: dict | None, au: date) -> dict:
     """Valeurs affichées pour une activité (aucune règle de mise en page ici)."""
@@ -80,7 +74,6 @@ def build_view(ref: Referentiel, a: dict, s: dict | None, au: date) -> dict:
         "recommandations": (s["Recommandations"] or "") if s else None,
     }
 
-
 # --------------------------------------------------------------------------
 # Mise en forme Word
 # --------------------------------------------------------------------------
@@ -92,14 +85,12 @@ def _run(p, text, bold=False, size=SIZE, color=None):
         r.font.color.rgb = RGBColor.from_string(color)
     return r
 
-
 def _para(cell):
     """Paragraphe suivant dans une cellule (réutilise le paragraphe vide initial)."""
     p = cell.paragraphs[0] if (len(cell.paragraphs) == 1 and not cell.paragraphs[0].text) else cell.add_paragraph()
     p.paragraph_format.space_after = Pt(1)
     p.paragraph_format.space_before = Pt(0)
     return p
-
 
 def _labelled(cell, label, value, bold_value=False):
     p = _para(cell)
@@ -108,14 +99,12 @@ def _labelled(cell, label, value, bold_value=False):
         _run(p, value, bold=bold_value)
     return p
 
-
 def _dash(cell, text):
     p = _para(cell)
     pPr = p._p.get_or_add_pPr()
     pPr.append(parse_xml(f'<w:numPr {nsdecls("w")}><w:ilvl w:val="0"/><w:numId w:val="{NUM_ID}"/></w:numPr>'))
     _run(p, text)
     return p
-
 
 def _setup_numbering(doc):
     numbering = doc.part.numbering_part.element
@@ -127,11 +116,9 @@ def _setup_numbering(doc):
     (first_num.addprevious(abstract) if first_num is not None else numbering.append(abstract))
     numbering.append(parse_xml(f'<w:num {nsdecls("w")} w:numId="{NUM_ID}"><w:abstractNumId w:val="{NUM_ID}"/></w:num>'))
 
-
 def _shade(cell, fill):
     tcPr = cell._tc.get_or_add_tcPr()
     tcPr.append(parse_xml(f'<w:shd {nsdecls("w")} w:val="clear" w:color="auto" w:fill="{fill}"/>'))
-
 
 def _page_footer(section, text):
     p = section.footer.paragraphs[0]
@@ -150,7 +137,6 @@ def _page_footer(section, text):
             t.text = instr
             r._r.append(t)
 
-
 def _cell1(cell, v, cat):
     _para(cell)
     _run(cell.paragraphs[0], v["region"], bold=True)
@@ -165,7 +151,6 @@ def _cell1(cell, v, cat):
     _labelled(cell, "Fin prévue :", v["fin"])
     _labelled(cell, "Bureau de contrôle :", v["bureau"])
 
-
 def _cell3(cell, v):
     if v["commentaires"]:
         _run(_para(cell), v["commentaires"])
@@ -173,7 +158,6 @@ def _cell3(cell, v):
         _labelled(cell, "Difficultés :", v["difficultes"])
     if v["recommandations"]:
         _labelled(cell, "Recommandations :", v["recommandations"])
-
 
 def render(ref: Referentiel, cat: str, au: date, path) -> Path:
     cfg, last = ref.cfg, latest_valid(ref)
@@ -195,7 +179,15 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
 
     table = doc.add_table(rows=1, cols=3)
     table.style, table.alignment, table.autofit = "Table Grid", WD_TABLE_ALIGNMENT.CENTER, False
-    for c, (title, w) in enumerate(zip(("Désignation Activité", f"Avancement physique au {au:%d/%m/%Y}", "Commentaires"), WIDTHS_CM)):
+    
+    # CORRECTION : Calcul de la date réelle des données pour éviter la date trompeuse
+    last_dates = [s["Date_Actualisation"] for s in last.values() if s.get("Date_Actualisation")]
+    date_donnees_reelles = max(last_dates) if last_dates else au
+    delta_jours = (au - date_donnees_reelles).days if date_donnees_reelles else 0
+    suffixe_alerte = f" (Données arrêtées au {date_donnees_reelles:%d/%m/%Y})" if delta_jours > 1 else ""
+    titre_colonne_2 = f"Avancement physique au {au:%d/%m/%Y}{suffixe_alerte}"
+    
+    for c, (title, w) in enumerate(zip(("Désignation Activité", titre_colonne_2, "Commentaires"), WIDTHS_CM)):
         cell = table.rows[0].cells[c]
         cell.width = Cm(w)
         _shade(cell, "D9E2F3")
@@ -220,21 +212,20 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
         for line in v["obs"]:
             _dash(mid, line)
         if cat == "BS":
-            _labelled(mid, "Taux d’avancement :", v["taux"], bold_value=True)
+            _labelled(mid, "Taux d'avancement :", v["taux"], bold_value=True)
             _labelled(mid, "Délai consommé :", v["delai_conso"], bold_value=True)
             if v["facture"]:
                 _labelled(mid, "Total facturé :", v["facture"], bold_value=True)
         else:
             if v["facture"]:
                 _labelled(mid, "Total facturé :", v["facture"], bold_value=True)
-            _labelled(rows[1].cells[1], "Taux d’avancement :", v["taux"], bold_value=True)
+            _labelled(rows[1].cells[1], "Taux d'avancement :", v["taux"], bold_value=True)
             _labelled(rows[2].cells[1], "Délai consommé :", v["delai_conso"], bold_value=True)
         _cell3(c3, v)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)
     return path
-
 
 def generate_all(ref: Referentiel, au: date, out_dir) -> list[Path]:
     out = []
