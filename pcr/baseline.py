@@ -1,6 +1,4 @@
-
 """Import des suivis de référence depuis les matrices Markdown."""
-
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -336,92 +334,5 @@ def import_baseline(ref: Referentiel, sources: list, date_etat: date):
                     "Source": "BASELINE_WORD",
                 },
             )
-
-    return warns
-
-
-def import_baseline_from_excel(ref, excel_path: Path, date_etat: date):
-    """Import Excel conservé pour compatibilité avec les anciens traitements."""
-    import pandas as pd
-
-    warns = []
-    excel_path = Path(excel_path)
-    if not excel_path.exists():
-        raise FileNotFoundError(excel_path)
-
-    df = pd.read_excel(
-        excel_path, sheet_name="MATRICE DE SUIVI", skiprows=2
-    )
-    df.columns = [str(c).strip() for c in df.columns]
-
-    for column in ("REGIONS", "DEPARTEMENT", "NATURE DU MARCHE", "ENTREPRISE"):
-        if column in df.columns:
-            df[column] = df[column].ffill()
-
-    activities = ref.activities()
-    existing_codes = {
-        r.get("CODE_ACTIVITE")
-        for r in ref.base.rows("Suivi_Activites")
-        if r.get("Source") == "BASELINE_EXCEL"
-    }
-
-    for _, row in df.iterrows():
-        region = row.get("REGIONS")
-        if pd.isna(region):
-            continue
-
-        nature = str(row.get("NATURE DU MARCHE", "")).lower()
-        categorie = "BS" if "bloc" in nature else "MR"
-        dept = str(row.get("DEPARTEMENT", "")).strip()
-        entreprise = str(row.get("ENTREPRISE", "")).strip()
-
-        matches = [
-            a for a in activities
-            if a["Categorie"] == categorie
-            and a["Region"] == ref.cfg.region_code(str(region))
-            and clean(a.get("Departement")).upper() == clean(dept).upper()
-            and clean(a.get("Entreprise")).upper() == clean(entreprise).upper()
-        ]
-
-        if len(matches) != 1:
-            warns.append(
-                f"Correspondance Excel absente ou ambiguë : {region} / {dept}"
-            )
-            continue
-
-        code = matches[0]["CODE_ACTIVITE"]
-        if code in existing_codes:
-            continue
-
-        taux = row.get("TAUX D'EXECUTION  (%)")
-        facture = row.get("TAUX D'EXECUTION FINANCIERE")
-        observations = row.get("OBSERVATIONS TECHNIQUES")
-
-        ref.base.append(
-            "Suivi_Activites",
-            {
-                "ID_SOUMISSION_KOBO": f"BASELINE_EXCEL_{code}",
-                "CODE_ACTIVITE": code,
-                "Date_Actualisation": date_etat,
-                "Observations_Techniques": (
-                    str(observations).strip() if pd.notna(observations) else None
-                ),
-                "Taux_Execution_Physique": (
-                    _number(taux) if pd.notna(taux) else None
-                ),
-                "Commentaires": None,
-                "Difficultes": None,
-                "Recommandations": None,
-                "Date_Importation": date.today(),
-                "Statut_Traitement": "VALIDE",
-                "Motif_Rejet": None,
-                "Nom_Agent": None,
-                "Total_Facture": (
-                    _number(facture) if pd.notna(facture) else None
-                ),
-                "Source": "BASELINE_EXCEL",
-            },
-        )
-        existing_codes.add(code)
 
     return warns
