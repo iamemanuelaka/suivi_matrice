@@ -138,7 +138,7 @@ def _extract_technical_observations(text):
     patterns = [
         r"Taux\s+d['’]avancement\s*:.*?(?=Délai\s+consommé|Total\s+factur[ée]|$)",
         r"Délai\s+consommé\s*:.*?(?=Total\s+factur[ée]|$)",
-        r"Total\s+factur[ée]\s*:.*$",
+        r"Total\s+factur[ée]\s*:?\s*[\d\s.,]*%?",
     ]
     for pattern in patterns:
         text = re.sub(pattern, " ", text, flags=re.I)
@@ -169,7 +169,7 @@ def _extract_comments(text):
     def unique_join(values):
         unique = []
         for value in values:
-            value = clean(value).strip(" ;.")
+            value = clean(value).strip(" ;")
             if value and value not in unique:
                 unique.append(value)
         return " / ".join(unique)
@@ -200,7 +200,11 @@ def parse_suivis(source, categorie=None):
         if len(cells) < 3:
             continue
 
-        if "Désignation" in cells[0] or set(cells[0]) <= {"-", ":"}:
+        # Ligne d'en-tête ou de séparation Markdown (| --- | --- |). ATTENTION : une cellule vide est
+        # un sous-ensemble de n'importe quel ensemble ; sans le test « cells[0] » les lignes de
+        # continuation des marchés ruraux (1re cellule vide : Taux d'avancement / Délai consommé)
+        # étaient prises pour des séparateurs et ignorées.
+        if cells[0] and ("Désignation" in cells[0] or set(cells[0]) <= {"-", ":", " "}):
             continue
 
         if cells[0]:
@@ -326,11 +330,9 @@ def import_baseline(ref: Referentiel, sources: list, date_etat: date):
                     "Statut_Traitement": "VALIDE",
                     "Motif_Rejet": None,
                     "Nom_Agent": None,
-                    "Total_Facture": (
-                        item.get("Total_Facture")
-                        if item.get("Total_Facture") is not None
-                        else 0
-                    ),
+                    # None si la matrice d'origine n'indique aucun « Total facturé » (marché non démarré) :
+                    # on n'invente pas de 0 %.
+                    "Total_Facture": item.get("Total_Facture"),
                     "Source": "BASELINE_WORD",
                 },
             )

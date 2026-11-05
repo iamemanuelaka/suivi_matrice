@@ -212,14 +212,14 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
         for line in v["obs"]:
             _dash(mid, line)
         if cat == "BS":
-            _labelled(mid, "Taux d'avancement :", v["taux"], bold_value=True)
+            _labelled(mid, "Taux d’avancement :", v["taux"], bold_value=True)
             _labelled(mid, "Délai consommé :", v["delai_conso"], bold_value=True)
             if v["facture"]:
                 _labelled(mid, "Total facturé :", v["facture"], bold_value=True)
         else:
             if v["facture"]:
                 _labelled(mid, "Total facturé :", v["facture"], bold_value=True)
-            _labelled(rows[1].cells[1], "Taux d'avancement :", v["taux"], bold_value=True)
+            _labelled(rows[1].cells[1], "Taux d’avancement :", v["taux"], bold_value=True)
             _labelled(rows[2].cells[1], "Délai consommé :", v["delai_conso"], bold_value=True)
         _cell3(c3, v)
     path = Path(path)
