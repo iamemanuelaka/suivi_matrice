@@ -56,11 +56,17 @@ def main(argv=None) -> int:
     vw.add_argument("--bs", required=True), vw.add_argument("--mr", required=True)
     vw.add_argument("--au", required=True, help="date de situation JJ/MM/AAAA")
     vw.add_argument("--rapport", default="docs/fidelite_word.md")
+    vc = sub.add_parser("verifier-classeur", help="contrôle un .xlsx (causes connues de « réparation » par Excel) ; --reparer écrit une copie corrigée")
+    vc.add_argument("fichier"), vc.add_argument("--reparer", metavar="SORTIE", help="écrit une copie réparée")
+    ex = sub.add_parser("etendre-modele", help="étend la capacité du modèle de tableau de bord (formules clonées, modèle non reconstruit)")
+    ex.add_argument("--capacite", type=int, default=500), ex.add_argument("--entree"), ex.add_argument("--sortie")
     d = sub.add_parser("generer-dashboard", help="alimente le tableau de bord Excel existant depuis la base")
     d.add_argument("--au", help="date pour le nom du fichier JJ/MM/AAAA (défaut : aujourd'hui)")
     l = sub.add_parser("lancer", help="cycle complet : Kobo -> base -> Word + Excel -> e-mail -> journal")
     l.add_argument("--from-json"), l.add_argument("--au"), l.add_argument("--mail", action="store_true", help="envoyer les documents par e-mail")
     l.add_argument("--declencheur", default="manuel"), l.add_argument("--env", default=".env")
+    al = sub.add_parser("alerter", help="envoie un e-mail d'alerte aux destinataires (MAIL_TO) : utilisé par le workflow en cas d'échec")
+    al.add_argument("--sujet", required=True), al.add_argument("--message", required=True), al.add_argument("--env", default=".env")
     dm = sub.add_parser("demo", help="démonstration sur une COPIE de la base (la base réelle n'est pas modifiée)")
     dm.add_argument("--json", default="demo/soumissions_demo.json"), dm.add_argument("--sortie", default="demo_sortie")
     sub.add_parser("kobo-formulaire", help="génère le questionnaire XLSForm à importer dans Kobo")
@@ -155,6 +161,21 @@ def main(argv=None) -> int:
         Path(a.rapport).parent.mkdir(parents=True, exist_ok=True)
         Path(a.rapport).write_text(report, encoding="utf-8")
         print(report.split("## Différences")[0].split("## Blocs")[1] if "## Blocs" in report else "", f"\nRapport : {a.rapport}")
+    elif a.cmd == "etendre-modele":
+        from .xlsx_capacity import etendre_modele
+        modele = Path(a.entree) if a.entree else cfg.path("dashboard_modele")
+        print(etendre_modele(modele, Path(a.sortie) if a.sortie else modele, a.capacite))
+    elif a.cmd == "verifier-classeur":
+        from .xlsx_patch import Package
+        from .xlsx_repair import diagnostiquer, lire_parts
+        pb = diagnostiquer(lire_parts(a.fichier))
+        print("\n".join(f"  ✗ {x}" for x in pb) if pb else "  ✓ aucun défaut connu de « réparation » Excel")
+        if a.reparer:
+            pkg = Package(a.fichier)
+            pkg.save(a.reparer)
+            print(f"Copie réparée : {a.reparer}", *[f"\n  * {n}" for n in pkg.corrections])
+            return 0 if not diagnostiquer(lire_parts(a.reparer)) else 1
+        return 1 if pb else 0
     elif a.cmd == "generer-dashboard":
         from .referentiel import to_date
         jour = to_date(a.au) if a.au else date.today()
@@ -174,6 +195,20 @@ def main(argv=None) -> int:
         res = run_pipeline(ref, load_json(a.from_json) if a.from_json else None, to_date(a.au) if a.au else date.today(), a.mail, a.declencheur, client)
         print("\n".join(res.lines()))
         return 0 if res.ok else 1
+    elif a.cmd == "alerter":
+        from .mailer import MailError, build_message, recipients, send
+        _load_env(Path(a.env))
+        to = recipients(cfg)
+        if not to:
+            print("Aucun destinataire (MAIL_TO ou email.destinataires).")
+            return 2
+        try:
+            send(build_message(a.sujet, a.message, [], os.environ.get("MAIL_FROM") or os.environ.get("SMTP_USER", ""), to))
+        except MailError as e:
+            print(f"Alerte non envoyée : {e}")
+            return 1
+        print("Alerte envoyée à " + ", ".join(to))
+        return 0
     elif a.cmd == "demo":
         import shutil, tempfile
         tmp = Path(tempfile.mkdtemp())
