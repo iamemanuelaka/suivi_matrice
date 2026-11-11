@@ -150,6 +150,14 @@ class Package:
         self._sheets: dict[str, Sheet] = {}
         self.corrections = list(X.reparer_parts(self.parts, self._sheet_files))
 
+    def repair(self):
+        """Répare les parties du classeur et conserve la liste des corrections effectuées."""
+        corrections = X.reparer_parts(self.parts, self._sheet_files)
+        for correction in corrections:
+            if correction not in self.corrections:
+                self.corrections.append(correction)
+        return corrections
+
     def has_sheet(self, name: str) -> bool:
         return name in self._sheet_files
 
@@ -167,6 +175,7 @@ class Package:
         self.parts["xl/workbook.xml"] = wb.encode("utf-8")
 
     def save(self, out) -> None:
+        self.repair()
         for name, sh in self._sheets.items():
             if sh.dirty:
                 self.parts[self._sheet_files[name]] = sh.tobytes()
