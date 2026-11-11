@@ -204,4 +204,7 @@ def _controle_relations(parts: dict[str, bytes]) -> list[str]:
 
 
 def lire_parts(chemin) -> dict[str, bytes]:
-    return lire_parts_brutes(chemin)
+    """Lit le classeur et corrige automatiquement les défauts connus avant diagnostic/usage."""
+    parts = lire_parts_brutes(chemin)
+    reparer_parts(parts)
+    return parts
