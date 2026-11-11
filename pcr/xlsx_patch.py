@@ -4,7 +4,7 @@ Pourquoi : openpyxl réécrit tout le classeur à l'enregistrement et peut alté
 Ici seuls les fichiers de feuille modifiés (et workbook.xml pour forcer le recalcul) sont réécrits ; toutes les autres parties du classeur
 (graphiques, dessins, images, styles, tableaux, thème) sont recopiées OCTET POUR OCTET.
 Les cellules contenant une formule ne sont jamais modifiées.
- """
+"""
 import re
 import zipfile
 from datetime import date, datetime
