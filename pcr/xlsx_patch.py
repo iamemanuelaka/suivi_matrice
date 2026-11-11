@@ -4,13 +4,15 @@ Pourquoi : openpyxl réécrit tout le classeur à l'enregistrement et peut alté
 Ici seuls les fichiers de feuille modifiés (et workbook.xml pour forcer le recalcul) sont réécrits ; toutes les autres parties du classeur
 (graphiques, dessins, images, styles, tableaux, thème) sont recopiées OCTET POUR OCTET.
 Les cellules contenant une formule ne sont jamais modifiées.
-"""
+ """
 import re
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
 
 from lxml import etree
+
+from . import xlsx_repair as X
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 RNS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -146,6 +148,7 @@ class Package:
             t = target[s.get(f"{{{RNS}}}id")].lstrip("/")
             self._sheet_files[s.get("name")] = t if t.startswith("xl/") else "xl/" + t
         self._sheets: dict[str, Sheet] = {}
+        self.corrections = list(X.reparer_parts(self.parts, self._sheet_files))
 
     def has_sheet(self, name: str) -> bool:
         return name in self._sheet_files
