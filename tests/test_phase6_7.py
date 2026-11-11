@@ -28,7 +28,7 @@ TEMPLATE = ROOT / "modeles" / "MATRICE_DE_SUIVI_DES_ACTIVITES_modele.xlsx"
 def ref(tmp_path):
     cfg = load_config()
     cfg.data["chemins"] = {**cfg.data["chemins"], "base": str(tmp_path / "b.xlsx"), "sauvegardes": str(tmp_path / "sv"), "sorties": str(tmp_path / "out"),
-                           "dashboard_modele": str(TEMPLATE)}
+                            "dashboard_modele": str(TEMPLATE)}
     cfg.root = Path("/")
     r = Referentiel(Base(tmp_path / "b.xlsx"), cfg)
     seed(r, SOURCES)
@@ -70,9 +70,12 @@ def test_dashboard_ne_touche_a_aucune_formule(ref, tmp_path):
         assert f(TEMPLATE, n) == f(out, n)
 
 
-def test_dashboard_refuse_un_depassement_de_capacite(ref, tmp_path):
+def test_dashboard_refuse_un_depassement_de_capacite(ref, tmp_path, monkeypatch):
     for i in range(4):
         ref.create_activity("BS", "BAF")
+    # Le test porte sur le garde-fou, pas sur la capacité particulière du modèle livré.
+    # Simule un modèle dont la capacité est juste inférieure au nombre d'activités.
+    monkeypatch.setattr("pcr.excel_gen.capacite_modele", lambda _parts: len(ref.activities()) - 1)
     with pytest.raises(ValueError, match="place"):
         generate_dashboard(ref, TEMPLATE, tmp_path / "x.xlsx")
 

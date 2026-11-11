@@ -37,15 +37,16 @@ def test_decoupage_des_litteraux_longs_conserve_le_texte():
 
 
 def _abimer(parts: dict) -> dict:
-    """Reproduit les trois défauts d'origine sur une copie du modèle sain."""
+    """Reproduit les défauts d'origine sur une copie du modèle, sans dépendre de la formule actuelle en B53."""
     p = dict(parts)
     p["xl/drawings/drawing1.xml"] = p["xl/drawings/drawing1.xml"].replace(b"<a:avLst/>", b"<avLst/>")
     p["xl/drawings/drawing2.xml"] = p["xl/drawings/drawing2.xml"].replace(b"<a:avLst/>", b"<avLst/>")
     from lxml import etree
     root = etree.fromstring(p["xl/worksheets/sheet2.xml"])
-    b53 = next(c for c in root.iter(X.S and f"{{{X.S}}}c") if c.get("r") == "B53").find(f"{{{X.S}}}f")
-    assert '"&"' in b53.text                        # B53 découpée dans le modèle réparé
-    b53.text = b53.text.replace('"&"', "")          # on retrouve la constante unique de 261 caractères
+    b53 = next(c for c in root.iter(f"{{{X.S}}}c") if c.get("r") == "B53").find(f"{{{X.S}}}f")
+    # Injecte explicitement le défaut Excel (constante de 261 caractères) au lieu de
+    # supposer que le modèle livré contient encore l'ancienne formule découpée.
+    b53.text = (b53.text or "") + '&"' + ("x" * 261) + '"'
     p["xl/worksheets/sheet2.xml"] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
     return p
 
