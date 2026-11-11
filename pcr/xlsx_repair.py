@@ -35,11 +35,17 @@ _LIT = re.compile(r'"((?:[^"]|"")*)"')
 _UNITES = re.compile(r'""|.', re.S)
 
 
+def lire_parts_brutes(chemin) -> dict[str, bytes]:
+    """Lit le XLSX sans modifier son contenu. Utilisé pour les diagnostics de défauts."""
+    with zipfile.ZipFile(chemin) as z:
+        return {i.filename: z.read(i.filename) for i in z.infolist()}
+
+
 # ---------------------------------------------------------------- formules
 def decouper_litteraux(formule: str) -> str:
     """Découpe toute constante texte > 255 caractères en `"a"&"b"&…` (sémantique inchangée)."""
     def rep(m):
-        unites = _UNITES.findall(m.group(1))             # « "" » compte pour 1 caractère
+        unites = _UNITES.findall(m.group(1))
         if len(unites) <= MAX_LITTERAL:
             return m.group(0)
         morceaux = ["".join(unites[i:i + MORCEAU]) for i in range(0, len(unites), MORCEAU)]
@@ -59,7 +65,6 @@ def _imbrication(f: str) -> int:
     return m
 
 
-# ---------------------------------------------------------------- réparation
 def _serialiser(root) -> bytes:
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
@@ -160,7 +165,7 @@ def _controle_table(nom: str, parts: dict[str, bytes]) -> list[str]:
         mm = re.fullmatch(r"([A-Z]+)(\d+)", c.get("r"))
         if int(mm.group(2)) == int(m.group(2)):
             if c.find(f"{{{S}}}f") is not None:
-                entete[_col(mm.group(1))] = None            # formule dans l'en-tête : interdit
+                entete[_col(mm.group(1))] = None
             else:
                 entete[_col(mm.group(1))] = "".join(c.itertext()).strip()
     pb = []
@@ -199,5 +204,4 @@ def _controle_relations(parts: dict[str, bytes]) -> list[str]:
 
 
 def lire_parts(chemin) -> dict[str, bytes]:
-    with zipfile.ZipFile(chemin) as z:
-        return {i.filename: z.read(i.filename) for i in z.infolist()}
+    return lire_parts_brutes(chemin)
