@@ -5,6 +5,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -17,6 +18,7 @@ from pcr.referentiel import Referentiel
 from pcr.seed import seed
 from pcr.store import Base
 from pcr.xlsx_patch import Package
+from pcr.word_gen import ordered_activities
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "sources"
@@ -68,6 +70,72 @@ def test_dashboard_ne_touche_a_aucune_formule(ref, tmp_path):
     f = lambda p, n: re.findall(r"<f>.*?</f>", zipfile.ZipFile(p).read(n).decode("utf-8"))   # noqa: E731
     for n in ("xl/worksheets/sheet3.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet5.xml"):
         assert f(TEMPLATE, n) == f(out, n)
+
+
+def test_filtres_dashboard_suivent_les_valeurs_generees(ref, tmp_path, monkeypatch):
+    activities = [a for cat in ref.cfg.categories for a in ordered_activities(ref, cat)]
+    codes_bs = sorted(a["CODE_ACTIVITE"] for a in activities if a["Categorie"] == "BS")
+    rates = dict(zip(codes_bs[:3], (0, 50, 100)))
+    suivi = {
+        code: {"Taux_Execution_Physique": taux, "Observations_Techniques": ""}
+        for code, taux in rates.items()
+    }
+    monkeypatch.setattr("pcr.excel_gen.latest_valid", lambda _ref: suivi)
+
+    out = tmp_path / "dashboard_filtres.xlsx"
+    generate_dashboard(ref, TEMPLATE, out)
+    matrix = Package(out).sheet("MATRICE DE SUIVI")
+    last_row = 3 + len(activities)
+
+    valeurs_attendues = {
+        5: {a["Entreprise"] for a in activities if a["Entreprise"]},
+        9: {ref.cfg.categories[a["Categorie"]] for a in activities},
+        18: {statut_chantier(rates.get(a["CODE_ACTIVITE"])) for a in activities},
+    }
+    for col, expected in valeurs_attendues.items():
+        actual = {matrix.get(row, col) for row in range(4, last_row + 1) if matrix.get(row, col)}
+        assert actual == expected
+
+    wb = load_workbook(TEMPLATE, data_only=False)
+    calc = wb["CALCULS"]
+    for column, source in {"F": "E", "G": "I", "M": "R"}.items():
+        assert f"'MATRICE DE SUIVI'!${source}:${source}" in calc[f"{column}5"].value
+    assert "SEARCH(kwStatut,M5)" in calc["AE5"].value
+    assert "INDEX(catStatut,AE5)" in calc["N5"].value
+    status_rules = {
+        wb["PARAMETRES"][f"A{row}"].value: wb["PARAMETRES"][f"B{row}"].value
+        for row in range(13, 42)
+    }
+    assert status_rules["non d"] == "Non démarré"
+    assert status_rules["en cours"] == "En cours"
+    assert status_rules["achev"] == "Achevé"
+    assert valeurs_attendues[18] <= set(status_rules.values())
+
+    for column, source in {"AJ": "D", "AL": "E", "AN": "F", "AP": "G", "AR": "AC"}.items():
+        assert f"INDEX({source}$5:{source}$504" in calc[f"{column}6"].value
+    for column, source in {"CQ": "G", "CU": "D", "CY": "F", "DC": "N"}.items():
+        assert f"INDEX(${source}$5:${source}$504" in calc[f"{column}6"].value
+
+    names = wb.defined_names
+    for name, first, rank in (
+        ("lstNatures", "CQ", "CP"),
+        ("lstEnts", "CY", "CX"),
+        ("lstStatuts", "DC", "DB"),
+    ):
+        attr_text = names[name].attr_text
+        assert f"CALCULS!${first}$5" in attr_text
+        assert f"COUNT(CALCULS!${rank}$5:${rank}$504)" in attr_text
+    validations = {
+        str(dv.sqref): dv.formula1
+        for dv in wb["TABLEAU DE BORD"].data_validations.dataValidation
+    }
+    assert {cell: validations[cell] for cell in ("B10", "B13", "B16", "B19")} == {
+        "B10": "lstNatures",
+        "B13": "lstRegions",
+        "B16": "lstEnts",
+        "B19": "lstStatuts",
+    }
+    wb.close()
 
 
 def test_dashboard_refuse_un_depassement_de_capacite(ref, tmp_path, monkeypatch):
