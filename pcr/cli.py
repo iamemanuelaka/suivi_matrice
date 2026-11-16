@@ -58,6 +58,13 @@ def main(argv=None) -> int:
     vw.add_argument("--rapport", default="docs/fidelite_word.md")
     vc = sub.add_parser("verifier-classeur", help="contrôle un .xlsx (causes connues de « réparation » par Excel) ; --reparer écrit une copie corrigée")
     vc.add_argument("fichier"), vc.add_argument("--reparer", metavar="SORTIE", help="écrit une copie réparée")
+    mg = sub.add_parser("migrer-valeurs-modele", help="reprend (une fois) dans la base les valeurs saisies à la main dans le modèle de tableau de bord (décaissé, PGES, ONG…)")
+    mg.add_argument("--a-blanc", action="store_true", help="affiche ce qui serait repris sans rien écrire")
+    ls = sub.add_parser("limiter-statuts", help="limite les statuts du modèle de tableau de bord à : Non démarré, En cours, Achevé, Suspendu")
+    ls.add_argument("--entree"), ls.add_argument("--sortie")
+    sub.add_parser("ong-liste", help="liste les ONG saisies (nombre d'activités) et signale les doublons d'écriture")
+    ro = sub.add_parser("renommer-ong", help="remplace une ONG (et ses variantes d'écriture) par le nom retenu dans toutes les activités")
+    ro.add_argument("ancien"), ro.add_argument("nouveau")
     ex = sub.add_parser("etendre-modele", help="étend la capacité du modèle de tableau de bord (formules clonées, modèle non reconstruit)")
     ex.add_argument("--capacite", type=int, default=500), ex.add_argument("--entree"), ex.add_argument("--sortie")
     d = sub.add_parser("generer-dashboard", help="alimente le tableau de bord Excel existant depuis la base")
@@ -161,6 +168,45 @@ def main(argv=None) -> int:
         Path(a.rapport).parent.mkdir(parents=True, exist_ok=True)
         Path(a.rapport).write_text(report, encoding="utf-8")
         print(report.split("## Différences")[0].split("## Blocs")[1] if "## Blocs" in report else "", f"\nRapport : {a.rapport}")
+    elif a.cmd == "ong-liste":
+        liste = ref.ong_liste()
+        for g in liste:
+            noms = " / ".join(f"{n} ({k})" for n, k in g["noms"].items())
+            print(("⚠ " if g["proches"] else "  ") + f"{noms} — activités : {', '.join(g['codes'])}"
+                  + (f"   ← proche de : {', '.join(g['proches'])}" if g["proches"] else ""))
+        nb = sum(1 for g in liste if g["proches"])
+        print(f"{len(liste)} ONG distincte(s) ; {nb} à vérifier (noms proches comptés comme des ONG différentes : homogénéiser avec renommer-ong).")
+    elif a.cmd == "renommer-ong":
+        codes = ref.renommer_ong(a.ancien, a.nouveau)
+        print(f"{len(codes)} activité(s) mise(s) à jour : {', '.join(codes) or '—'}")
+        if codes:
+            problems = ref.verify()
+            if problems:
+                print("Contrôle d'intégrité en échec, rien n'est enregistré :", *problems, sep="\n  ")
+                return 1
+            base.save(backups)
+            export_admin_file(ref, cfg.path("fichier_admin"))
+    elif a.cmd == "migrer-valeurs-modele":
+        from .migration_modele import migrer_valeurs_modele
+        rap = migrer_valeurs_modele(ref, cfg.path("dashboard_modele"), dry_run=a.a_blanc)
+        print(("[À BLANC] " if a.a_blanc else "") + f"{len(rap['reprises'])} activité(s) renseignée(s).")
+        for code, ch in rap["reprises"]:
+            print(f"  ~ {code} : " + ", ".join(f"{k}={v}" for k, v in ch.items()))
+        for x in rap["ignorees"]:
+            print(f"  ⚠ {x}")
+        for x in rap["non_rapprochees"]:
+            print(f"  ! non rapprochée : {x}")
+        if rap["reprises"] and not a.a_blanc:
+            problems = ref.verify()
+            if problems:
+                print("Contrôle d'intégrité en échec, rien n'est enregistré :", *problems, sep="\n  ")
+                return 1
+            base.save(backups)
+            export_admin_file(ref, cfg.path("fichier_admin"))
+    elif a.cmd == "limiter-statuts":
+        from .xlsx_statuts import limiter_statuts
+        modele = Path(a.entree) if a.entree else cfg.path("dashboard_modele")
+        print(limiter_statuts(modele, Path(a.sortie) if a.sortie else modele))
     elif a.cmd == "etendre-modele":
         from .xlsx_capacity import etendre_modele
         modele = Path(a.entree) if a.entree else cfg.path("dashboard_modele")

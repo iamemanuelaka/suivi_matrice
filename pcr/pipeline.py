@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .calculs import indicateurs_delai
 from .excel_gen import generate_dashboard
+from .migration_modele import reprise_automatique
 from .ingest import Report, ingest, log_execution
 from .kobo_form import KoboClient, KoboError
 from .mailer import MailError, build_message, recipients, send
@@ -26,10 +27,12 @@ class Result:
     email: str = "non envoyé"
     alertes: list = field(default_factory=list)
     erreur: str | None = None
+    avertissements: list = field(default_factory=list)
 
     def lines(self) -> list[str]:
         out = self.report.lines() + [f"Documents : {', '.join(Path(d).name for d in self.documents) or 'aucun'}", f"E-mail : {self.email}"]
         out += [f"Activités en alerte : {len(self.alertes)}"] + [f"  - {a}" for a in self.alertes]
+        out += [f"⚠ {a}" for a in self.avertissements]
         return out + ([f"ÉCHEC : {self.erreur}"] if self.erreur else [])
 
 
@@ -40,7 +43,8 @@ def alertes(ref: Referentiel, au: date) -> list[str]:
     last, out = latest_valid(ref), []
     for a in ref.activities():
         s = last.get(a["CODE_ACTIVITE"])
-        if a["Statut"] != "Actif" or not s or s["Taux_Execution_Physique"] is None or s["Taux_Execution_Physique"] >= 100:
+        if a["Statut"] != "Actif" or not s or s["Taux_Execution_Physique"] is None or s["Taux_Execution_Physique"] >= 100 \
+                or a.get("Statut_Chantier") == "Achevé":          # statut saisi par l'administrateur : le tableau de bord n'évalue pas non plus
             continue
         i = indicateurs_delai(a["Date_Debut"], a["Delai_Mois"], au, ref.cfg.conventions[a["Categorie"]])
         if i and s["Taux_Execution_Physique"] < s_taux and i["consommation_pct"] >= s_delai:
@@ -56,6 +60,8 @@ def mail_body(res: Result, au: date, a_verifier: list[str]) -> str:
          f"{res.report.count('REJETE')} rejetée(s))."]
     if a_verifier:
         L += ["", "Soumissions à vérifier par l'administrateur :"] + [f"  - {x}" for x in a_verifier]
+    if res.avertissements:
+        L += [""] + [f"⚠ {x}" for x in res.avertissements]
     L += ["", f"Activités en alerte (exécution < seuil et délai consommé ≥ seuil) : {len(res.alertes)}"] + [f"  - {x}" for x in res.alertes[:15]]
     return "\n".join(L + ["", "Message généré automatiquement à partir des données KoboToolbox.", "", "Cordialement"])
 
@@ -71,6 +77,7 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
                 raise KoboError("Aucune source de soumissions (client Kobo ou fichier JSON requis).")
             submissions = client.submissions()
         res.report = ingest(ref, submissions, au, declencheur, log=False)
+        res.avertissements += reprise_automatique(ref, cfg.path("dashboard_modele"))
         res.alertes = alertes(ref, au)
         res.documents = [*generate_all(ref, au, out_dir),
                          Path(generate_dashboard(ref, cfg.path("dashboard_modele"), out_dir / f"MATRICE_DE_SUIVI_DES_ACTIVITES_du_{au:%d-%m-%y}.xlsx", now)["fichier"])]

@@ -14,10 +14,14 @@ from .config import Config
 from .store import Base
 
 FIXED = ["Departement", "Localite", "Designation", "Montant_Marche", "Entreprise", "Numero_OS", "Date_OS", "Date_Debut", "Delai_Mois", "Bureau_Controle"]
-EDITABLE = FIXED + ["Statut"]
-DATE_FIELDS = {"Date_OS", "Date_Debut"}
-INT_FIELDS = {"Montant_Marche", "Delai_Mois"}
-STATUTS = ("Actif", "Archivé")
+# Informations gérées PAR L'ADMINISTRATEUR (le technicien ne les renseigne pas) : finances, statut du chantier, PGES, ONG.
+CHANTIER = ["Montant_Decaisse", "Date_Remise_Site", "Statut_Chantier", "PGES", "ONG_Mobilisees", "Date_Reception_Provisoire"]
+EDITABLE = FIXED + CHANTIER + ["Statut"]
+DATE_FIELDS = {"Date_OS", "Date_Debut", "Date_Remise_Site", "Date_Reception_Provisoire"}
+INT_FIELDS = {"Montant_Marche", "Montant_Decaisse", "Delai_Mois"}
+STATUTS = ("Actif", "Archivé")                      # cycle de vie de l'activité dans la base (pas le statut du chantier)
+STATUTS_CHANTIER = ("Non démarré", "En cours", "Achevé", "Suspendu")        # les 4 seuls statuts du chantier
+PGES_VALEURS = ("Validé", "En cours de validation", "Non transmis", "Sans PGES")
 CODE_RE = re.compile(r"^([A-Z]{2})([A-Z]{3})(\d{3})$")
 MAX_SEQ = 999
 
@@ -65,7 +69,59 @@ def coerce(field: str, raw):
     s = str(raw).strip()
     if field == "Statut" and s not in STATUTS:
         raise ValueError(f"statut invalide : {s!r} (valeurs : {', '.join(STATUTS)})")
+    if field == "Statut_Chantier":
+        return _choice("statut du chantier", s, STATUTS_CHANTIER)
+    if field == "PGES":
+        return _choice("PGES", s, PGES_VALEURS)
+    if field == "ONG_Mobilisees":
+        return ong_canonique(s)
     return s
+
+
+def _norm(x: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn").lower().strip()
+
+
+def _choice(field: str, s: str, allowed) -> str:
+    for a in allowed:
+        if _norm(a) == _norm(s):
+            return a
+    raise ValueError(f"{field} invalide : {s!r} (valeurs : {', '.join(allowed)})")
+
+
+GENERIQUES_ONG = ("Non mobilisée", "Mobilisée")     # valeurs sans nom d'ONG (« Mobilisée » = ONG mobilisée dont le nom n'est pas encore connu)
+
+
+def ong_canonique(nom: str) -> str:
+    """Ramène les écritures génériques (sans nom d'ONG) aux deux valeurs « Non mobilisée » / « Mobilisée » ; un vrai nom reste inchangé."""
+    k = _norm(nom or "").replace("-", " ")
+    if k.startswith("non mobilis") or k in ("aucune", "aucun", "neant", "sans ong", "pas d ong", "pas d'ong") or k.startswith("pas d"):
+        return GENERIQUES_ONG[0]
+    if k in ("mobilisee", "mobilise", "oui", "ong", "ong mobilisee", "a confirmer") or k.startswith("mobilis"):
+        return GENERIQUES_ONG[1]
+    return " ".join(nom.split())
+
+
+def cle_ong(nom: str) -> str:
+    """Clé de comparaison des noms d'ONG, identique à celle du tableau de bord (majuscules, sans accents, sans « ONG », sans . et -)."""
+    import re
+    t = _norm(nom or "").upper().replace("ONG ", "").replace("-", " ").replace("’", "'").replace(".", "")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def taux_financier(a: dict):
+    """Taux d'exécution financière (%) = montant décaissé / montant du marché ; None si l'un des deux manque."""
+    d, m = a.get("Montant_Decaisse"), a.get("Montant_Marche")
+    if d is None or not m:
+        return None
+    return round(d / m * 100, 1)
+
+
+def check_finance(values: dict) -> None:
+    d, m = values.get("Montant_Decaisse"), values.get("Montant_Marche")
+    if d is not None and m is not None and d > m:
+        raise ValueError(f"le montant décaissé ({d:,}) dépasse le montant du marché ({m:,}) : corriger l'un des deux".replace(",", " "))
 
 
 def fmt(v) -> str:
@@ -127,6 +183,7 @@ class Referentiel:
             raise ValueError(f"Champs non reconnus : {sorted(unknown)}")
         values = {f: coerce(f, fields.get(f)) for f in EDITABLE}
         values["Statut"] = values["Statut"] or "Actif"
+        check_finance(values)
         code = self._next_code(cat, reg)
         row = {"CODE_ACTIVITE": code, "Categorie": cat, "Region": reg, **values,
                "Date_Fin_Previsionnelle": fin_previsionnelle(values["Date_Debut"], values["Delai_Mois"], self.cfg.conventions[cat]),
@@ -159,6 +216,7 @@ class Referentiel:
         if not done:
             return []
         merged = {**{f: act[f] for f in EDITABLE}, **{f: n for f, _, n in done}}
+        check_finance(merged)
         update = {f: n for f, _, n in done}
         update["Date_Fin_Previsionnelle"] = fin_previsionnelle(merged["Date_Debut"], merged["Delai_Mois"], self.cfg.conventions[act["Categorie"]])
         update["Date_Modification"] = now
@@ -166,6 +224,37 @@ class Referentiel:
         for f, old, new in done:
             self._log(code, f, old, new, user, now)
         return done
+
+    def ong_liste(self) -> list[dict]:
+        """ONG saisies : nom(s), activités, et NOMS PROCHES (probables doublons). Le tableau de bord compte les ONG DISTINCTES après
+        normalisation (majuscules, accents, « ONG », points, tirets) : « ASAPSU » et « ASAPSU ONG » y comptent pour deux."""
+        import difflib
+        groupes: dict[str, dict] = {}
+        for a in self.activities():
+            nom = (a["ONG_Mobilisees"] or "").strip()
+            if not nom or nom in GENERIQUES_ONG:
+                continue
+            g = groupes.setdefault(cle_ong(nom), {"noms": {}, "codes": []})
+            g["noms"][nom] = g["noms"].get(nom, 0) + 1
+            g["codes"].append(a["CODE_ACTIVITE"])
+        cles = sorted(groupes)
+
+        def proches(k):
+            return [n for k2 in cles if k2 != k and (k in k2 or k2 in k or difflib.SequenceMatcher(None, k, k2).ratio() >= 0.85)
+                    for n in groupes[k2]["noms"]]
+        return [{"cle": k, "noms": groupes[k]["noms"], "codes": groupes[k]["codes"], "proches": proches(k)} for k in cles]
+
+    def renommer_ong(self, ancien: str, nouveau: str, user: str | None = None) -> list[str]:
+        """Remplace, dans TOUTES les activités, une ONG (et ses variantes d'écriture) par le nom retenu. Historisé."""
+        nouveau = " ".join((nouveau or "").split())
+        if not nouveau:
+            raise ValueError("le nouveau nom d'ONG est vide")
+        cle = cle_ong(ancien)
+        codes = [a["CODE_ACTIVITE"] for a in self.activities() if a["ONG_Mobilisees"] and cle_ong(a["ONG_Mobilisees"]) == cle
+                 and a["ONG_Mobilisees"] != nouveau]
+        for c in codes:
+            self.update_activity(c, user, {"ONG_Mobilisees": nouveau})
+        return codes
 
     def archive(self, code: str, user: str | None = None):
         return self.update_activity(code, user, {"Statut": "Archivé"})

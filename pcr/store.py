@@ -16,6 +16,8 @@ SCHEMA = {
         "CODE_ACTIVITE", "Categorie", "Region", "Departement", "Localite", "Designation", "Montant_Marche", "Entreprise",
         "Numero_OS", "Date_OS", "Date_Debut", "Delai_Mois", "Bureau_Controle", "Date_Fin_Previsionnelle", "Statut",
         "Date_Creation", "Date_Modification",
+        # Informations gérées par l'administrateur (non collectées auprès des techniciens). Ajoutées à la fin : les bases existantes sont migrées.
+        "Montant_Decaisse", "Date_Remise_Site", "Statut_Chantier", "PGES", "ONG_Mobilisees", "Date_Reception_Provisoire",
     ],
     "Suivi_Activites": [
         "ID_SOUMISSION_KOBO", "CODE_ACTIVITE", "Date_Actualisation", "Observations_Techniques", "Taux_Execution_Physique",
@@ -30,9 +32,9 @@ SCHEMA = {
         "ID_Execution", "Date_Execution", "Declencheur", "Recuperees", "Traitees", "Ignorees", "Echouees", "Documents", "Email", "Resultat", "Detail",
     ],
 }
-DATE_COLS = {"Date_OS", "Date_Debut", "Date_Fin_Previsionnelle", "Date_Actualisation"}
+DATE_COLS = {"Date_OS", "Date_Debut", "Date_Fin_Previsionnelle", "Date_Actualisation", "Date_Remise_Site", "Date_Reception_Provisoire"}
 DATETIME_COLS = {"Date_Creation", "Date_Modification", "Date_Importation", "Date_Execution"}
-INT_COLS = {"Montant_Marche", "Delai_Mois", "Dernier_Numero", "ID_MODIFICATION", "ID_Execution", "Recuperees", "Traitees", "Ignorees", "Echouees"}
+INT_COLS = {"Montant_Marche", "Montant_Decaisse", "Delai_Mois", "Dernier_Numero", "ID_MODIFICATION", "ID_Execution", "Recuperees", "Traitees", "Ignorees", "Echouees"}
 WIDTHS = {"Designation": 60, "Localite": 40, "Entreprise": 32, "Observations_Techniques": 60, "Commentaires": 40, "Difficultes": 40,
           "Recommandations": 40, "Ancienne_Valeur": 30, "Nouvelle_Valeur": 30, "Detail": 50, "Bureau_Controle": 30, "Departement": 24}
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
@@ -100,7 +102,7 @@ class Base:
             cell.number_format = "DD/MM/YYYY"
         elif col in DATETIME_COLS and v is not None:
             cell.number_format = "DD/MM/YYYY HH:MM"
-        elif col == "Montant_Marche":
+        elif col in ("Montant_Marche", "Montant_Decaisse"):
             cell.number_format = "#,##0"
         if col in ("Designation", "Observations_Techniques", "Localite", "Commentaires", "Difficultes", "Recommandations"):
             cell.alignment = Alignment(wrap_text=True, vertical="top")

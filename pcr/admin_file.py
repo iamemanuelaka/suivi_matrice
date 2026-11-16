@@ -11,13 +11,13 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from .referentiel import EDITABLE, FIXED, STATUTS, Referentiel, coerce
+from .referentiel import CHANTIER, GENERIQUES_ONG, EDITABLE, FIXED, PGES_VALEURS, STATUTS, STATUTS_CHANTIER, Referentiel, coerce, taux_financier
 
 CLEAR = "#VIDER"
-COLUMNS = ["CODE_ACTIVITE", "Categorie", "Region"] + FIXED + ["Date_Fin_Previsionnelle", "Statut"]
-INFO_ONLY = {"CODE_ACTIVITE", "Date_Fin_Previsionnelle"}      # produits par le système, ignorés à la lecture
+COLUMNS = (["CODE_ACTIVITE", "Categorie", "Region"] + FIXED + ["Date_Fin_Previsionnelle"] + CHANTIER[:1] + ["Taux_Financier"] + CHANTIER[1:] + ["Statut"])
+INFO_ONLY = {"CODE_ACTIVITE", "Date_Fin_Previsionnelle", "Taux_Financier"}      # produits par le système, ignorés à la lecture
 FILLS = {"fixe": PatternFill("solid", fgColor="1F4E78"), "info": PatternFill("solid", fgColor="7F7F7F")}
-WIDTHS = {"Designation": 60, "Localite": 40, "Entreprise": 32, "Departement": 24, "Bureau_Controle": 30}
+WIDTHS = {"ONG_Mobilisees": 28, "PGES": 24, "Statut_Chantier": 16, "Designation": 60, "Localite": 40, "Entreprise": 32, "Departement": 24, "Bureau_Controle": 30}
 
 
 @dataclass
@@ -49,24 +49,37 @@ def export_admin_file(ref: Referentiel, path) -> Path:
         ws.column_dimensions[cell.column_letter].width = WIDTHS.get(h, 18)
     for r, a in enumerate(ref.activities(), 2):
         for c, h in enumerate(COLUMNS, 1):
-            cell = ws.cell(r, c, a[h])
+            cell = ws.cell(r, c, taux_financier(a) if h == "Taux_Financier" else a[h])
             cell.font = Font(name="Arial", size=10, color="7F7F7F" if h in INFO_ONLY else "000000")
-            if h in ("Date_OS", "Date_Debut", "Date_Fin_Previsionnelle"):
+            if h in ("Date_OS", "Date_Debut", "Date_Fin_Previsionnelle", "Date_Remise_Site", "Date_Reception_Provisoire"):
                 cell.number_format = "DD/MM/YYYY"
-            elif h == "Montant_Marche":
+            elif h in ("Montant_Marche", "Montant_Decaisse"):
                 cell.number_format = "#,##0"
+            elif h == "Taux_Financier":
+                cell.number_format = "0.0"
             if h in ("Designation", "Localite"):
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
     ws.freeze_panes = "B2"
     ws.auto_filter.ref = f"A1:{ws.cell(1, len(COLUMNS)).column_letter}{max(ws.max_row, 2)}"
 
     lst = wb.create_sheet("Listes")
-    lst.append(["Catégories (code)", "Nom", "", "Régions (code)", "Nom", "", "Statuts"])
+    lst.append(["Catégories (code)", "Nom", "", "Régions (code)", "Nom", "", "Statuts", "", "Statut du chantier", "PGES", "", "ONG (suggestions)"])
     cats, regs = list(ref.cfg.categories.items()), list(ref.cfg.regions.items())
-    for i in range(max(len(cats), len(regs), len(STATUTS))):
+    for i in range(max(len(cats), len(regs), len(STATUTS), len(STATUTS_CHANTIER), len(PGES_VALEURS))):
         lst.append([*(cats[i] if i < len(cats) else ("", "")), "", *(regs[i] if i < len(regs) else ("", "")), "",
-                    STATUTS[i] if i < len(STATUTS) else ""])
-    for col, rng, n in (("Categorie", "A", len(cats)), ("Region", "D", len(regs)), ("Statut", "G", len(STATUTS))):
+                    STATUTS[i] if i < len(STATUTS) else "", "",
+                    STATUTS_CHANTIER[i] if i < len(STATUTS_CHANTIER) else "", PGES_VALEURS[i] if i < len(PGES_VALEURS) else ""])
+    ong_noms = list(GENERIQUES_ONG) + sorted({n for g in ref.ong_liste() for n in g["noms"]})
+    for i, nom in enumerate(ong_noms, start=2):
+        lst.cell(i, 12, nom)
+    dv_ong = DataValidation(type="list", formula1=f"=Listes!$L$2:$L${len(ong_noms) + 1}", allow_blank=True, showErrorMessage=False,
+                            showInputMessage=True, promptTitle="ONG", prompt="Choisir une ONG existante ou saisir le nom exact (même orthographe). "
+                            "« Non mobilisée » ou « Mobilisée » (nom inconnu) sont aussi possibles.")
+    ws.add_data_validation(dv_ong)
+    letter_ong = ws.cell(1, COLUMNS.index("ONG_Mobilisees") + 1).column_letter
+    dv_ong.add(f"{letter_ong}2:{letter_ong}1000")
+    for col, rng, n in (("Categorie", "A", len(cats)), ("Region", "D", len(regs)), ("Statut", "G", len(STATUTS)),
+                        ("Statut_Chantier", "I", len(STATUTS_CHANTIER)), ("PGES", "J", len(PGES_VALEURS))):
         dv = DataValidation(type="list", formula1=f"=Listes!${rng}$2:${rng}${n + 1}", allow_blank=True)
         ws.add_data_validation(dv)
         letter = ws.cell(1, COLUMNS.index(col) + 1).column_letter
@@ -82,7 +95,13 @@ def export_admin_file(ref: Referentiel, path) -> Path:
         "4. Enregistrer le fichier puis lancer :  python -m pcr appliquer",
         "5. Le rapport indique les créations, les modifications (ancienne -> nouvelle valeur) et les erreurs ligne par ligne.",
         "Colonnes grises : calculées ou attribuées par le système, ignorées à la lecture.",
-        "Dates au format JJ/MM/AAAA. Montant en FCFA, sans texte. Délai en mois entiers.",
+        "Dates au format JJ/MM/AAAA. Montants en FCFA, sans texte. Délai en mois entiers.",
+        "FINANCES / CHANTIER (gérés par l'administrateur, pas par les techniciens) : Montant_Decaisse (le taux financier = décaissé / marché est calculé),",
+        "   Date_Remise_Site, Statut_Chantier (Non démarré, En cours, Achevé, Suspendu), PGES (liste), ONG_Mobilisees (nom de l'ONG, ou « Non mobilisée »),",
+        "   Date_Reception_Provisoire. Statut_Chantier vide = déduit automatiquement du taux (0 % non démarré, 100 % achevé, sinon en cours).",
+        "Le montant décaissé ne peut pas dépasser le montant du marché.",
+        "ONG : la liste propose les ONG déjà saisies (pour garder la même orthographe) ; un nouveau nom peut être tapé. « Mobilisée » = ONG mobilisée dont le nom n'est pas connu.",
+        "   Le tableau de bord compte les ONG DISTINCTES : une même ONG écrite de deux façons serait comptée deux fois -> commandes ong-liste et renommer-ong.",
     ]:
         guide.append([line])
     guide.column_dimensions["A"].width = 120

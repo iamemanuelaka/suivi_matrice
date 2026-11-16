@@ -8,8 +8,10 @@ taux moyen). Aucune formule, aucun graphique, aucune image du classeur n'est mod
 Le classeur produit est diagnostiqué avant d'être publié : s'il présente un défaut qu'Excel signalerait à l'ouverture, la génération est refusée
 et aucun fichier n'est écrit.
 
-Non collectés par le nouveau questionnaire (spécification) : montant décaissé, taux financier, date de remise de site, PGES, ONG, réception
-provisoire, photo, répondant. Ces colonnes restent TELLES QUELLES dans le modèle.
+Informations GÉRÉES PAR L'ADMINISTRATEUR (non collectées auprès des techniciens) : montant décaissé (et taux financier calculé), date de remise de
+site, statut du chantier (4 valeurs : Non démarré, En cours, Achevé, Suspendu ; vide = déduit du taux), PGES, ONG mobilisées, réception provisoire.
+Elles sont écrites DEPUIS LA BASE pour chaque activité, repérée par son code : plus aucune valeur n'est conservée « par position » dans le modèle.
+Les colonnes sans source (« RESULTATS », photo) sont vidées ; « répondant » reprend le nom de l'agent de la dernière actualisation.
 """
 import os
 import unicodedata
@@ -17,14 +19,16 @@ from datetime import datetime
 from pathlib import Path
 
 from . import xlsx_repair as X
-from .referentiel import Referentiel
+from .referentiel import Referentiel, taux_financier
 from .word_gen import latest_valid, ordered_activities
 from .xlsx_capacity import capacite_modele
 from .xlsx_patch import Package
 
 SHEET, META = "MATRICE DE SUIVI", "META"
 FIRST_ROW = 4
-COL = {"lot": 2, "region": 3, "dep": 4, "ent": 5, "montant": 6, "nature": 9, "loc": 10, "debut": 11, "delai": 12, "fin": 13, "taux": 17, "statut": 18, "obs": 19}
+COL = {"lot": 2, "region": 3, "dep": 4, "ent": 5, "montant": 6, "nature": 9, "loc": 10, "debut": 11, "delai": 12, "fin": 13, "taux": 17, "statut": 18, "obs": 19,
+       "decaisse": 7, "taux_fin": 8, "remise": 14, "resultats": 16, "pges": 20, "ong": 21, "reception": 22, "photo": 23, "agent": 24}
+ADMIN_KEYS = ("decaisse", "taux_fin", "remise", "resultats", "pges", "ong", "reception", "photo", "agent")
 META_MAX_ROWS = 450
 
 
@@ -96,13 +100,22 @@ def generate_dashboard(ref: Referentiel, template, out_path, now: datetime | Non
         if not sh.has_formula(r, COL["fin"]):                           # fin selon la convention de la catégorie, sauf si la formule EDATE existe
             put("fin", a["Date_Fin_Previsionnelle"])
         put("taux", taux)
-        put("statut", statut_chantier(taux))
+        put("statut", a["Statut_Chantier"] or statut_chantier(taux))
+        put("decaisse", a["Montant_Decaisse"])
+        put("taux_fin", taux_financier(a))
+        put("remise", a["Date_Remise_Site"])
+        put("pges", a["PGES"])
+        put("ong", a["ONG_Mobilisees"])
+        put("reception", a["Date_Reception_Provisoire"])
+        put("agent", (s.get("Nom_Agent") or None) if s else None)
+        put("resultats", None)
+        put("photo", None)
         put("obs", "\n".join(l.strip() for l in (s["Observations_Techniques"] or "").splitlines() if l.strip()) if s else None)
         if isinstance(taux, (int, float)):
             taux_values.append(taux)
 
     for r in range(FIRST_ROW + len(acts), last_row + 1):               # lignes en trop (activité retirée) : vidées
-        for key in ("lot", "region", "dep", "ent", "montant", "nature", "loc", "debut", "delai", "taux", "statut", "obs"):
+        for key in ("lot", "region", "dep", "ent", "montant", "nature", "loc", "debut", "delai", "taux", "statut", "obs") + ADMIN_KEYS:
             sh.set(r, COL[key], None)
         if not sh.has_formula(r, COL["fin"]):
             sh.set(r, COL["fin"], None)
