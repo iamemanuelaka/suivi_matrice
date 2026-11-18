@@ -45,9 +45,19 @@ Pour que les techniciens voient la nouvelle activité dans Kobo : `python -m pcr
 * Relancer `appliquer` sans nouvelle modification donne « 0 modifiée ».
 * Les valeurs sont écrites dans le tableau de bord **par code d'activité** : changer l'ordre des activités ne décale plus rien.
 
-## Statuts : seulement 4
-`Non démarré`, `En cours`, `Achevé`, `Suspendu`. Les anciens statuts « Démarrage autorisé », « OS à reprendre » et « Abandonné » ont été retirés
-du tableau de bord (feuille PARAMETRES). Un chantier `Achevé` n'est pas évalué pour les alertes (comme dans le tableau de bord).
+## Statuts des chantiers : l'administrateur décide
+Les 4 statuts : `Non démarré`, `En cours`, `Achevé`, `Suspendu` (les anciens « Démarrage autorisé », « OS à reprendre » et « Abandonné » sont retirés).
+* **Où** : colonne `Statut_Chantier` du fichier admin (liste déroulante). La colonne grise `Statut_Suggere` donne la suggestion d'après le taux
+  remonté du terrain (0 % non démarré, 100 % achevé, sinon en cours) ; `Suspendu` ne se suggère jamais.
+* **Lien avec le tableau de bord** : le statut saisi est celui affiché partout (cartes, filtre « Statut », graphique). Le filtre « Statut » propose
+  **toujours les 4 statuts**, même si aucune activité n'a encore « Achevé » ou « Suspendu ».
+  Si `Statut_Chantier` est vide, c'est la suggestion qui s'applique.
+* **Prendre la main d'un coup** : `python -m pcr statuts-figer --a-blanc` (simulation) puis `python -m pcr statuts-figer` : chaque activité reçoit
+  comme statut de départ la suggestion actuelle ; ensuite vous corrigez les exceptions dans le fichier admin
+  (`exporter`, modifier, `appliquer`, puis `git add -A`, `commit`, `push`). **Dès lors le statut ne suit plus automatiquement le taux.**
+* **Garde-fou** : chaque lundi, le rapport (et le courriel) liste les « Statuts à vérifier » quand le statut saisi contredit le terrain :
+  « Non démarré » avec un taux > 0, « En cours » à 100 %, « Achevé » sous 100 %. Un « Suspendu » n'est jamais signalé.
+* Un chantier `Achevé` n'est pas évalué pour les alertes (comme dans le tableau de bord).
 
 ## Première mise en service (une seule fois, automatique)
 Avant, le montant décaissé, le PGES, les ONG… étaient saisis à la main dans le modèle Excel, ligne par ligne. Au **premier traitement** après la
