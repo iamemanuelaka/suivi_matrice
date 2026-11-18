@@ -62,6 +62,11 @@ def main(argv=None) -> int:
     mg.add_argument("--a-blanc", action="store_true", help="affiche ce qui serait repris sans rien écrire")
     ls = sub.add_parser("limiter-statuts", help="limite les statuts du modèle de tableau de bord à : Non démarré, En cours, Achevé, Suspendu")
     ls.add_argument("--entree"), ls.add_argument("--sortie")
+    pm = sub.add_parser("pges-en-masse", help="met le même PGES à toutes les activités d'un statut (ex. En cours → Validé), avec simulation")
+    pm.add_argument("--statut", default="En cours", help="statut du chantier concerné (défaut : En cours)")
+    pm.add_argument("--valeur", default="Validé", help="valeur du PGES à appliquer (défaut : Validé)")
+    pm.add_argument("--seulement-vides", action="store_true", help="ne touche pas aux PGES déjà renseignés")
+    pm.add_argument("--a-blanc", action="store_true", help="affiche ce qui serait modifié sans rien écrire")
     sub.add_parser("ong-liste", help="liste les ONG saisies (nombre d'activités) et signale les doublons d'écriture")
     ro = sub.add_parser("renommer-ong", help="remplace une ONG (et ses variantes d'écriture) par le nom retenu dans toutes les activités")
     ro.add_argument("ancien"), ro.add_argument("nouveau")
@@ -168,6 +173,22 @@ def main(argv=None) -> int:
         Path(a.rapport).parent.mkdir(parents=True, exist_ok=True)
         Path(a.rapport).write_text(report, encoding="utf-8")
         print(report.split("## Différences")[0].split("## Blocs")[1] if "## Blocs" in report else "", f"\nRapport : {a.rapport}")
+    elif a.cmd == "pges-en-masse":
+        from .actions_masse import pges_en_masse
+        rap = pges_en_masse(ref, a.statut, a.valeur, a.seulement_vides, dry_run=a.a_blanc)
+        print(("[À BLANC] " if a.a_blanc else "") + f"PGES « {a.valeur} » pour les chantiers « {a.statut} » : "
+              f"{len(rap['modifiees'])} modifiée(s), {len(rap['deja'])} déjà à cette valeur, {len(rap['gardees'])} conservée(s).")
+        for code, ancien in rap["modifiees"]:
+            print(f"  ~ {code} : PGES {ancien!r} -> {a.valeur!r}")
+        for code, ancien in rap["gardees"]:
+            print(f"  = {code} : conservé ({ancien!r})")
+        if rap["modifiees"] and not a.a_blanc:
+            problems = ref.verify()
+            if problems:
+                print("Contrôle d'intégrité en échec, rien n'est enregistré :", *problems, sep="\n  ")
+                return 1
+            base.save(backups)
+            export_admin_file(ref, cfg.path("fichier_admin"))
     elif a.cmd == "ong-liste":
         liste = ref.ong_liste()
         for g in liste:

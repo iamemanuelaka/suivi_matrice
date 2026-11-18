@@ -61,7 +61,11 @@ Pour la voir à l'avance : `python -m pcr migrer-valeurs-modele --a-blanc` ; pou
 * Le tableau de bord compte les **ONG distinctes** (« ONG mobilisées : N »). Une même ONG écrite de deux façons (ex. `ASAPSU` et `ASAPSU ONG`) compte pour deux :
   * `python -m pcr ong-liste` — liste des ONG, avec les noms proches signalés (⚠) ;
   * `python -m pcr renommer-ong "ASAPSU ONG" "ASAPSU"` — remplace dans toutes les activités (historisé), puis `git add data`, `commit`, `push`.
-* Le PGES (`PGES`, « 13 Validés »…) se règle de la même façon, activité par activité.
+* Le PGES (`PGES`, « 13 Validés »…) se règle de la même façon, activité par activité (colonne `PGES` du fichier admin).
+* **Même PGES pour tous les chantiers d'un statut** (ex. tous les chantiers « En cours » ont un PGES validé) :
+  `python -m pcr pges-en-masse --a-blanc` (simulation : liste ce qui changerait, n'écrit rien), puis `python -m pcr pges-en-masse`,
+  puis `git add -A`, `commit`, `push`. Options : `--statut "En cours"` (défaut), `--valeur Validé` (défaut), `--seulement-vides` (ne touche pas aux PGES déjà renseignés).
+  Chaque changement est historisé ; les exceptions se corrigent ensuite dans le fichier admin (colonne `PGES`).
 
 ## Carte « Activités sélectionnées / total »
 Elle affiche le nombre d'activités de la sélection sur le total : **42 / 42** sans filtre ; avec le filtre statut « En cours », par exemple, **27 / 42** ;
