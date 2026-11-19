@@ -97,7 +97,9 @@ def ingest(ref: Referentiel, submissions: list[dict], today: date | None = None,
     """Intègre les soumissions (en mémoire : l'appelant sauvegarde la base). Idempotent."""
     today, now = today or date.today(), datetime.now().replace(microsecond=0)
     acts = {a["CODE_ACTIVITE"]: a for a in ref.activities()}
-    known = {str(r["ID_SOUMISSION_KOBO"]) for r in ref.base.rows("Suivi_Activites")}
+    rows = ref.base.rows("Suivi_Activites")
+    known = {str(r["ID_SOUMISSION_KOBO"]) for r in rows}
+    sans_photo = {str(r["ID_SOUMISSION_KOBO"]): r["_r"] for r in rows if not r.get("Photo_du_site")}
     rep = Report(recuperees=len(submissions))
     for sub in sorted(submissions, key=lambda s: (str(s.get("_submission_time") or ""), int(s.get("_id") or 0))):
         sid = sub.get("_id")
@@ -105,6 +107,10 @@ def ingest(ref: Referentiel, submissions: list[dict], today: date | None = None,
             rep.nouvelles.append(("?", None, "REJETE", "soumission sans identifiant Kobo (_id)"))
             continue
         if str(sid) in known:
+            # Rattrapage : soumission intégrée avant l'ajout de la colonne photo
+            photo = _txt(flatten(sub).get("Photo_du_site"))
+            if photo and str(sid) in sans_photo:
+                ref.base.update("Suivi_Activites", sans_photo.pop(str(sid)), {"Photo_du_site": photo})
             rep.ignorees += 1
             continue
         valid = [r for r in ref.base.rows("Suivi_Activites") if r["Statut_Traitement"] == "VALIDE"]

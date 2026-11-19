@@ -77,6 +77,13 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
             if client is None:
                 raise KoboError("Aucune source de soumissions (client Kobo ou fichier JSON requis).")
             submissions = client.submissions()
+            try:                                                                 # photos des sites (non bloquant)
+                from .kobo_photos import download_photos
+                ph = download_photos()
+                if ph["erreurs"]:
+                    res.avertissements.append(f"Photos Kobo : {len(ph['erreurs'])} non téléchargée(s) ({'; '.join(ph['erreurs'][:3])})")
+            except Exception as e:                                               # noqa: BLE001
+                res.avertissements.append(f"Photos Kobo non téléchargées : {e}")
         res.report = ingest(ref, submissions, au, declencheur, log=False)
         res.avertissements += reprise_automatique(ref, cfg.path("dashboard_modele"))
         res.avertissements += statuts_a_verifier(ref)

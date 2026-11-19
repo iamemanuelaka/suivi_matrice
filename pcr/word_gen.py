@@ -214,7 +214,7 @@ def _add_photo(cell, photo_filename: str | None) -> None:
         p = _para(cell)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = p.add_run()
-        run.add_picture(str(path_to_insert), width=Inches(5.0))
+        run.add_picture(str(path_to_insert), width=Cm(WIDTHS_CM[1] - 1.0))  # tient dans la colonne du milieu
 
         # Nettoyage du temporaire si créé
         if path_to_insert != photo_path and path_to_insert.exists():
