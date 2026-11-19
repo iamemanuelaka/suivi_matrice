@@ -1,0 +1,31 @@
+diff --git a/pcr/word_check.py b/pcr/word_check.py
+index 7489910..3b166f0 100644
+--- a/pcr/word_check.py
++++ b/pcr/word_check.py
+@@ -56,15 +56,24 @@ def source_rows(path, cat) -> list[list[str]]:
+     return rows
+ 
+ 
++PHOTO_MARK = "📷"
++
++
++def _cell_text(cell) -> str:
++    # Les paragraphes « 📷 … » (photo du site ou message d'absence) n'existent pas dans les
++    # matrices d'origine : ils sont exclus de la comparaison de fidélité.
++    return " ".join(p.text for p in cell.paragraphs if not p.text.lstrip().startswith(PHOTO_MARK))
++
++
+ def generated_rows(path, cat) -> list[list[str]]:
+     t = docx.Document(path).tables[0]
+     body, step = t.rows[1:], 3 if cat == "MR" else 1
+     out = []
+     for i in range(0, len(body), step):
+         grp = body[i:i + step]
+-        c = [" ".join(p.text for p in cell.paragraphs) for cell in grp[0].cells]
++        c = [_cell_text(cell) for cell in grp[0].cells]
+         for extra in grp[1:]:
+-            c[1] += " " + " ".join(p.text for p in extra.cells[1].paragraphs)
++            c[1] += " " + _cell_text(extra.cells[1])
+         out.append(c)
+     return out
+ 
