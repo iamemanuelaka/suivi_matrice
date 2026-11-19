@@ -22,7 +22,7 @@ SCHEMA = {
     "Suivi_Activites": [
         "ID_SOUMISSION_KOBO", "CODE_ACTIVITE", "Date_Actualisation", "Observations_Techniques", "Taux_Execution_Physique",
         "Commentaires", "Difficultes", "Recommandations", "Date_Importation", "Statut_Traitement", "Motif_Rejet",
-        "Nom_Agent", "Total_Facture", "Source",
+        "Nom_Agent", "Total_Facture", "Source", "Photo_du_site",
     ],
     "Historique_Modifications": [
         "ID_MODIFICATION", "CODE_ACTIVITE", "Champ_Modifie", "Ancienne_Valeur", "Nouvelle_Valeur", "Date_Modification", "Utilisateur",
