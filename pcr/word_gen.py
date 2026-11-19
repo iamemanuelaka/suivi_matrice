@@ -162,24 +162,64 @@ def _cell3(cell, v):
 
 def _add_photo(cell, photo_filename: str | None) -> None:
     """Insère la photo du site sous les observations dans la cellule, ou un message si absente.
-    Les photos manquantes ne bloquent jamais la génération.
+    Gère les formats courants (JPEG, PNG, GIF, BMP, TIFF, WebP…).
+    Les photos manquantes ou illisibles ne bloquent jamais la génération.
     """
     if not photo_filename:
         p = _para(cell)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _run(p, "📷 Aucune photo fournie.")
         return
-    photo_path = Path("data/photos") / photo_filename
+
+    # Kobo peut renvoyer un chemin ; on ne garde que le nom de fichier
+    photo_path = Path("data/photos") / Path(photo_filename).name
+
+    if not photo_path.is_file():
+        p = _para(cell)
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _run(p, f"📷 Photo introuvable : {photo_path.name}")
+        return
+
+    # Formats nativement supportés par python-docx
+    native = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif"}
+    # Formats à convertir via Pillow (WebP, HEIC, AVIF…)
+    to_convert = {".webp", ".heic", ".heif", ".avif", ".jfif"}
+
     try:
-        if photo_path.is_file():
-            p = _para(cell)
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run()
-            run.add_picture(str(photo_path), width=Inches(5.0))
-        else:
-            p = _para(cell)
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _run(p, f"📷 Photo introuvable : {photo_filename}")
+        suffix = photo_path.suffix.lower()
+        path_to_insert = photo_path
+
+        if suffix in to_convert or suffix not in native:
+            try:
+                from PIL import Image
+                import tempfile
+                img = Image.open(photo_path)
+                # Convertir en RGB si nécessaire (transparence, CMYK…)
+                if img.mode in ("RGBA", "P", "LA"):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+                    img = background
+                elif img.mode != "RGB":
+                    img = img.convert("RGB")
+                # Écrire un JPEG temporaire
+                tmp = Path(tempfile.gettempdir()) / f"pcr_photo_{photo_path.stem}.jpg"
+                img.save(tmp, "JPEG", quality=85, optimize=True)
+                path_to_insert = tmp
+            except Exception:
+                # Si Pillow échoue, on tente quand même l'insertion directe
+                path_to_insert = photo_path
+
+        p = _para(cell)
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run()
+        run.add_picture(str(path_to_insert), width=Inches(5.0))
+
+        # Nettoyage du temporaire si créé
+        if path_to_insert != photo_path and path_to_insert.exists():
+            path_to_insert.unlink(missing_ok=True)
+
     except Exception as e:
         p = _para(cell)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
