@@ -16,7 +16,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Inches, Pt, RGBColor
 
 from .calculs import indicateurs_delai
 from .config import normalize
@@ -72,6 +72,7 @@ def build_view(ref: Referentiel, a: dict, s: dict | None, au: date) -> dict:
         # Kobo : « RAS » si le technicien n'a rien signalé ; suivi de référence : on reprend le Word tel quel
         "difficultes": ((s["Difficultes"] or ("" if baseline else "RAS")) if s else None),
         "recommandations": (s["Recommandations"] or "") if s else None,
+        "photo": (s.get("Photo_du_site") or None) if s else None,  # nom de fichier de la photo du site
     }
 
 # --------------------------------------------------------------------------
@@ -159,6 +160,31 @@ def _cell3(cell, v):
     if v["recommandations"]:
         _labelled(cell, "Recommandations :", v["recommandations"])
 
+def _add_photo(cell, photo_filename: str | None) -> None:
+    """Insère la photo du site sous les observations dans la cellule, ou un message si absente.
+    Les photos manquantes ne bloquent jamais la génération.
+    """
+    if not photo_filename:
+        p = _para(cell)
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _run(p, "📷 Aucune photo fournie.")
+        return
+    photo_path = Path("data/photos") / photo_filename
+    try:
+        if photo_path.is_file():
+            p = _para(cell)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run()
+            run.add_picture(str(photo_path), width=Inches(5.0))
+        else:
+            p = _para(cell)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _run(p, f"📷 Photo introuvable : {photo_filename}")
+    except Exception as e:
+        p = _para(cell)
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _run(p, f"📷 Impossible d'insérer la photo ({e})")
+
 def render(ref: Referentiel, cat: str, au: date, path) -> Path:
     cfg, last = ref.cfg, latest_valid(ref)
     conf = cfg.category(cat)
@@ -211,6 +237,8 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
         mid = rows[0].cells[1]
         for line in v["obs"]:
             _dash(mid, line)
+        # Photo du site (après les observations techniques)
+        _add_photo(mid, v.get("photo"))
         if cat == "BS":
             _labelled(mid, "Taux d’avancement :", v["taux"], bold_value=True)
             _labelled(mid, "Délai consommé :", v["delai_conso"], bold_value=True)
