@@ -54,7 +54,8 @@ def evaluate(sub: dict, acts: dict, valid_rows: list[dict], today: date) -> tupl
     code = (_txt(f.get("code_activite")) or "").upper() or None
     rec = {"CODE_ACTIVITE": code, "Observations_Techniques": _txt(f.get("observations_techniques")), "Commentaires": _txt(f.get("commentaires")),
            "Difficultes": _txt(f.get("difficultes")), "Recommandations": _txt(f.get("recommandations")), "Nom_Agent": _txt(f.get("nom_agent")),
-           "Date_Actualisation": None, "Taux_Execution_Physique": None}
+           "Date_Actualisation": None, "Taux_Execution_Physique": None,
+           "Photo_du_site": _txt(f.get("Photo_du_site"))}  # nom du fichier image fourni par Kobo
     problems = []
     if is_rejected_in_kobo(sub):
         problems.append("soumission refusée dans Kobo")
