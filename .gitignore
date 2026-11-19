@@ -5,3 +5,9 @@ __pycache__/
 data/sauvegardes/
 demo_sortie/
 # data/photos/ est versionné : les photos Kobo sont enregistrées dans le dépôt
+
+# Application : fichiers de fabrication de l'exécutable
+build/
+dist/
+*.spec
+.synchro_github.json

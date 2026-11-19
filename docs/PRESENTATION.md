@@ -6,7 +6,7 @@ depuis une base unique, avec historique complet.
 
 ## Parcours
 Référentiel des activités (codes BSBAF001…) → Kobo (liste filtrable, infos fixes en lecture seule) → récupération automatique (doublons ignorés,
-saisies invalides conservées avec motif) → base (Excel) → 2 matrices Word + tableau de bord → e-mail → journal.
+saisies invalides conservées avec motif) → base (Excel) → 2 matrices Word → e-mail → journal ; second traitement : tableau de bord Excel → e-mail.
 
 ## Ce qui est réalisé et testé (82 tests automatiques)
 | Étape | État |
@@ -15,7 +15,7 @@ saisies invalides conservées avec motif) → base (Excel) → 2 matrices Word +
 | Questionnaire Kobo (validé ODK Validate) + liste d'activités générée et synchronisable | fait, **à tester sur votre serveur Kobo** |
 | Récupération/validation/doublons/historique (VALIDE, À VÉRIFIER, REJETÉ) | fait |
 | Matrices Word (BS, MR) générées depuis la base, contrôle de fidélité ligne à ligne | fait |
-| Tableau de bord Excel alimenté sans toucher aux formules/graphiques/images | fait |
+| Tableau de bord Excel généré depuis la base (filtres, graphique, alertes), workflow dédié | fait |
 | Automatisation GitHub Actions (lundi 7 h + lancement manuel), sauvegardes, journal, e-mail | fait, **à activer** (secrets) |
 
 ## Démonstration (2 minutes, sans risque pour les vraies données)

@@ -1,5 +1,7 @@
 # Suivi des activités PCR-CI — système complet (référentiel, Kobo, base, Word, Excel, e-mail)
 
+**Application Windows (sans ligne de commande)** : voir [docs/application.md](docs/application.md).
+
 Base de données = `data/base_pcr.xlsx` (ne pas éditer à la main). L'administrateur travaille dans `data/referentiel_admin.xlsx`.
 
     python -m pcr charger-initial --bs ... --mr ... [--excel ...]   # une seule fois
@@ -12,8 +14,9 @@ Base de données = `data/base_pcr.xlsx` (ne pas éditer à la main). L'administr
     python -m pcr kobo-sync         # envoie la liste à Kobo et redéploie (voir docs/kobo_mise_en_place.md)
     python -m pcr recuperer         # récupère les soumissions Kobo (--from-json pour tester hors ligne)
     python -m pcr suivis [--statut A_VERIFIER] ; valider <id> ; rejeter <id> "motif"
-    python -m pcr generer-word --au JJ/MM/AAAA ; generer-dashboard ; verifier-word ...
-    python -m pcr lancer [--mail]   # cycle complet (c'est ce que fait GitHub Actions chaque lundi)
+    python -m pcr generer-word --au JJ/MM/AAAA ; verifier-word ...
+    python -m pcr tableau-de-bord [--mail]   # tableau de bord Excel (second workflow : tableau-de-bord.yml)
+    python -m pcr lancer [--mail]   # matrices Word : Kobo → base → Word → e-mail (workflow suivi.yml, chaque lundi)
     python -m pcr demo              # démonstration sur une copie de la base
     python -m pytest -q tests
 

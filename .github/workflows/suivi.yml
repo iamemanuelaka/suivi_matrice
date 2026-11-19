@@ -32,7 +32,7 @@ jobs:
         id: tests
         run: python -m pytest -q tests
 
-      - name: Cycle complet (Kobo -> base -> Word + Excel -> e-mail)
+      - name: Cycle complet (Kobo -> base -> matrices Word -> e-mail)
         env:
           KOBO_URL: ${{ vars.KOBO_URL || 'https://kf.kobotoolbox.org' }}
           KOBO_ASSET_UID: ${{ secrets.KOBO_ASSET_UID }}
@@ -75,5 +75,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: documents-actualises
-          path: sorties/*.docx            # matrices Word uniquement (tableau de bord Excel en refonte)
+          path: sorties/*.docx            # matrices Word (le tableau de bord a son propre workflow : tableau-de-bord.yml)
           retention-days: 30

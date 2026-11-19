@@ -12,7 +12,6 @@ from .kobo_form import KoboClient, KoboError, activities_csv_rows, build_xlsform
 from .baseline import import_baseline, import_baseline_from_excel
 from .ingest import ingest, set_statut
 from .seed import seed, write_report
-from .excel_gen import generate_dashboard
 from .pipeline import load_json, run as run_pipeline
 from .word_gen import generate_all
 from .store import Base
@@ -56,12 +55,6 @@ def main(argv=None) -> int:
     vw.add_argument("--bs", required=True), vw.add_argument("--mr", required=True)
     vw.add_argument("--au", required=True, help="date de situation JJ/MM/AAAA")
     vw.add_argument("--rapport", default="docs/fidelite_word.md")
-    vc = sub.add_parser("verifier-classeur", help="contrôle un .xlsx (causes connues de « réparation » par Excel) ; --reparer écrit une copie corrigée")
-    vc.add_argument("fichier"), vc.add_argument("--reparer", metavar="SORTIE", help="écrit une copie réparée")
-    mg = sub.add_parser("migrer-valeurs-modele", help="reprend (une fois) dans la base les valeurs saisies à la main dans le modèle de tableau de bord (décaissé, PGES, ONG…)")
-    mg.add_argument("--a-blanc", action="store_true", help="affiche ce qui serait repris sans rien écrire")
-    ls = sub.add_parser("limiter-statuts", help="limite les statuts du modèle de tableau de bord à : Non démarré, En cours, Achevé, Suspendu")
-    ls.add_argument("--entree"), ls.add_argument("--sortie")
     pm = sub.add_parser("pges-en-masse", help="met le même PGES à toutes les activités d'un statut (ex. En cours → Validé), avec simulation")
     pm.add_argument("--statut", default="En cours", help="statut du chantier concerné (défaut : En cours)")
     pm.add_argument("--valeur", default="Validé", help="valeur du PGES à appliquer (défaut : Validé)")
@@ -72,11 +65,13 @@ def main(argv=None) -> int:
     sub.add_parser("ong-liste", help="liste les ONG saisies (nombre d'activités) et signale les doublons d'écriture")
     ro = sub.add_parser("renommer-ong", help="remplace une ONG (et ses variantes d'écriture) par le nom retenu dans toutes les activités")
     ro.add_argument("ancien"), ro.add_argument("nouveau")
-    ex = sub.add_parser("etendre-modele", help="étend la capacité du modèle de tableau de bord (formules clonées, modèle non reconstruit)")
-    ex.add_argument("--capacite", type=int, default=500), ex.add_argument("--entree"), ex.add_argument("--sortie")
-    d = sub.add_parser("generer-dashboard", help="alimente le tableau de bord Excel existant depuis la base")
-    d.add_argument("--au", help="date pour le nom du fichier JJ/MM/AAAA (défaut : aujourd'hui)")
-    l = sub.add_parser("lancer", help="cycle complet : Kobo -> base -> Word + Excel -> e-mail -> journal")
+    for nom in ("tableau-de-bord", "generer-dashboard"):
+        d = sub.add_parser(nom, help="génère le tableau de bord Excel depuis la base (filtres, indicateurs, graphique, alertes)"
+                           + ("" if nom == "tableau-de-bord" else " — ancien nom de « tableau-de-bord »"))
+        d.add_argument("--au", help="date de situation JJ/MM/AAAA (défaut : aujourd'hui)")
+        d.add_argument("--mail", action="store_true", help="envoyer le tableau de bord par e-mail")
+        d.add_argument("--declencheur", default="manuel"), d.add_argument("--env", default=".env")
+    l = sub.add_parser("lancer", help="cycle complet : Kobo -> base -> matrices Word -> e-mail -> journal")
     l.add_argument("--from-json"), l.add_argument("--au"), l.add_argument("--mail", action="store_true", help="envoyer les documents par e-mail")
     l.add_argument("--declencheur", default="manuel"), l.add_argument("--env", default=".env")
     al = sub.add_parser("alerter", help="envoie un e-mail d'alerte aux destinataires (MAIL_TO) : utilisé par le workflow en cas d'échec")
@@ -222,49 +217,18 @@ def main(argv=None) -> int:
                 return 1
             base.save(backups)
             export_admin_file(ref, cfg.path("fichier_admin"))
-    elif a.cmd == "migrer-valeurs-modele":
-        from .migration_modele import migrer_valeurs_modele
-        rap = migrer_valeurs_modele(ref, cfg.path("dashboard_modele"), dry_run=a.a_blanc)
-        print(("[À BLANC] " if a.a_blanc else "") + f"{len(rap['reprises'])} activité(s) renseignée(s).")
-        for code, ch in rap["reprises"]:
-            print(f"  ~ {code} : " + ", ".join(f"{k}={v}" for k, v in ch.items()))
-        for x in rap["ignorees"]:
-            print(f"  ⚠ {x}")
-        for x in rap["non_rapprochees"]:
-            print(f"  ! non rapprochée : {x}")
-        if rap["reprises"] and not a.a_blanc:
-            problems = ref.verify()
-            if problems:
-                print("Contrôle d'intégrité en échec, rien n'est enregistré :", *problems, sep="\n  ")
-                return 1
-            base.save(backups)
-            export_admin_file(ref, cfg.path("fichier_admin"))
-    elif a.cmd == "limiter-statuts":
-        from .xlsx_statuts import limiter_statuts
-        modele = Path(a.entree) if a.entree else cfg.path("dashboard_modele")
-        print(limiter_statuts(modele, Path(a.sortie) if a.sortie else modele))
-    elif a.cmd == "etendre-modele":
-        from .xlsx_capacity import etendre_modele
-        modele = Path(a.entree) if a.entree else cfg.path("dashboard_modele")
-        print(etendre_modele(modele, Path(a.sortie) if a.sortie else modele, a.capacite))
-    elif a.cmd == "verifier-classeur":
-        from .xlsx_patch import Package
-        from .xlsx_repair import diagnostiquer, lire_parts
-        pb = diagnostiquer(lire_parts(a.fichier))
-        print("\n".join(f"  ✗ {x}" for x in pb) if pb else "  ✓ aucun défaut connu de « réparation » Excel")
-        if a.reparer:
-            pkg = Package(a.fichier)
-            pkg.save(a.reparer)
-            print(f"Copie réparée : {a.reparer}", *[f"\n  * {n}" for n in pkg.corrections])
-            return 0 if not diagnostiquer(lire_parts(a.reparer)) else 1
-        return 1 if pb else 0
-    elif a.cmd == "generer-dashboard":
+    elif a.cmd in ("tableau-de-bord", "generer-dashboard"):
+        from .pipeline import run_tableau_de_bord
         from .referentiel import to_date
-        jour = to_date(a.au) if a.au else date.today()
-        res = generate_dashboard(ref, cfg.path("dashboard_modele"), cfg.path("sorties") / f"MATRICE_DE_SUIVI_DES_ACTIVITES_du_{jour:%d-%m-%y}.xlsx")
-        print(f"{res['fichier']}  ({res['lignes']} lignes, taux moyen {res['taux_moyen']} %)")
-        if res["formules_ignorees"]:
-            print("Cellules à formule non modifiées :", ", ".join(res["formules_ignorees"]))
+        if a.mail:
+            _load_env(Path(a.env))
+        res = run_tableau_de_bord(ref, to_date(a.au) if a.au else date.today(), a.mail, a.declencheur)
+        print(f"Tableau de bord : {', '.join(str(d) for d in res.documents) or 'aucun'}")
+        print(f"Activités en alerte : {len(res.alertes)}")
+        print(f"E-mail : {res.email}")
+        if res.erreur:
+            print(f"ÉCHEC : {res.erreur}")
+        return 0 if res.ok else 1
     elif a.cmd == "lancer":
         from .referentiel import to_date
         _load_env(Path(a.env))

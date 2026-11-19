@@ -10,9 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from .calculs import indicateurs_delai
-from .excel_gen import generate_dashboard
 from .actions_masse import statuts_a_verifier
-from .migration_modele import reprise_automatique
 from .ingest import Report, ingest, log_execution
 from .kobo_form import KoboClient, KoboError
 from .mailer import MailError, build_message, recipients, send
@@ -55,15 +53,8 @@ def alertes(ref: Referentiel, au: date) -> list[str]:
     return [t for _, t in sorted(out, reverse=True)]
 
 
-def pieces_jointes(cfg, documents: list) -> list:
-    """Documents envoyés par e-mail : les matrices Word, et le tableau de bord Excel seulement si la configuration le demande."""
-    avec_tb = bool(cfg.data.get("email", {}).get("joindre_tableau_de_bord", False))
-    return [d for d in documents if Path(d).suffix.lower() == ".docx" or avec_tb]
-
-
-def mail_body(res: Result, au: date, a_verifier: list[str], avec_tableau_de_bord: bool = False) -> str:
-    joint = "les matrices de suivi (blocs sanitaires, marchés ruraux)" + (" et le tableau de bord" if avec_tableau_de_bord else "")
-    L = ["Bonjour,", "", f"Veuillez trouver ci-joint {joint}, {'mis' if avec_tableau_de_bord else 'mises'} à jour au {au:%d/%m/%Y}.", "",
+def mail_body(res: Result, au: date, a_verifier: list[str]) -> str:
+    L = ["Bonjour,", "", f"Veuillez trouver ci-joint les matrices de suivi (blocs sanitaires, marchés ruraux), mises à jour au {au:%d/%m/%Y}.", "",
          f"Nouvelles actualisations reçues : {len(res.report.nouvelles)} ({res.report.count('VALIDE')} valide(s), {res.report.count('A_VERIFIER')} à vérifier, "
          f"{res.report.count('REJETE')} rejetée(s))."]
     if a_verifier:
@@ -92,11 +83,9 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
             except Exception as e:                                               # noqa: BLE001
                 res.avertissements.append(f"Photos Kobo non téléchargées : {e}")
         res.report = ingest(ref, submissions, au, declencheur, log=False)
-        res.avertissements += reprise_automatique(ref, cfg.path("dashboard_modele"))
         res.avertissements += statuts_a_verifier(ref)
         res.alertes = alertes(ref, au)
-        res.documents = [*generate_all(ref, au, out_dir),
-                         Path(generate_dashboard(ref, cfg.path("dashboard_modele"), out_dir / f"MATRICE_DE_SUIVI_DES_ACTIVITES_du_{au:%d-%m-%y}.xlsx", now)["fichier"])]
+        res.documents = generate_all(ref, au, out_dir)                          # matrices Word (le tableau de bord a son propre traitement)
         problems = ref.verify()
         if problems:
             raise RuntimeError("Contrôle d'intégrité du référentiel en échec : " + "; ".join(problems))
@@ -105,11 +94,9 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
             if not to:
                 raise MailError("Aucun destinataire (variable MAIL_TO ou email.destinataires dans la configuration).")
             a_verifier = [f"{i} {c} : {m}" for i, c, s, m in res.report.nouvelles if s == "A_VERIFIER"]
-            joints = pieces_jointes(cfg, res.documents)
-            avec_tb = any(Path(d).suffix.lower() != ".docx" for d in joints)
-            send(build_message(cfg.data["email"]["objet"].format(date=f"{au:%d/%m/%Y}"), mail_body(res, au, a_verifier, avec_tb), joints,
+            send(build_message(cfg.data["email"]["objet"].format(date=f"{au:%d/%m/%Y}"), mail_body(res, au, a_verifier), res.documents,
                                os.environ.get("MAIL_FROM") or os.environ.get("SMTP_USER", ""), to))
-            res.email = "envoyé à " + ", ".join(to) + ("" if avec_tb else " (matrices Word uniquement)")
+            res.email = "envoyé à " + ", ".join(to)
         log_execution(ref, res.report, declencheur, now, documents=", ".join(Path(d).name for d in res.documents), email=res.email)
         ref.base.save()
     except Exception as e:                                                       # noqa: BLE001 : tout échec est journalisé et signalé
@@ -129,3 +116,46 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
 def load_json(path) -> list[dict]:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     return raw.get("results", raw) if isinstance(raw, dict) else raw
+
+
+# --- tableau de bord Excel (second traitement, indépendant des matrices Word) ---------------------------------------
+def nom_tableau_de_bord(au: date) -> str:
+    return f"TABLEAU_DE_BORD_PCR-CI_du_{au:%d-%m-%y}.xlsx"
+
+
+def run_tableau_de_bord(ref: Referentiel, au: date | None = None, send_mail: bool = False, declencheur: str = "manuel") -> Result:
+    """Génère le tableau de bord Excel depuis la base (sans toucher à Kobo ni aux données) et l'envoie si demandé."""
+    from .indicateurs import calculer
+    from .tableau_de_bord_xlsx import generer
+    cfg, au, res = ref.cfg, au or date.today(), Result()
+    now = datetime.now().replace(microsecond=0)
+    try:
+        info = generer(ref, cfg.path("sorties") / nom_tableau_de_bord(au), au, now)
+        res.documents = [Path(info["fichier"])]
+        tb = calculer(ref, au=au)
+        res.alertes = [f"{a.code} – {a.departement or a.region} ({a.entreprise or '—'}) : exécution {a.taux:g} % pour "
+                       f"{a.conso:.0f} % du délai consommé" for a in tb.alertes]
+        if send_mail:
+            to = recipients(cfg)
+            if not to:
+                raise MailError("Aucun destinataire (variable MAIL_TO ou email.destinataires dans la configuration).")
+            objet = cfg.data["email"].get("objet_tableau_de_bord", "Tableau de bord PCR-CI – situation au {date}")
+            corps = "\n".join([
+                "Bonjour,", "", f"Veuillez trouver ci-joint le tableau de bord de suivi des activités PCR-CI, mis à jour au {au:%d/%m/%Y}.", "",
+                f"Activités suivies : {tb.total} · taux d'exécution physique moyen : "
+                + (f"{tb.taux_moyen:.1f} %".replace(".", ",") if tb.taux_moyen is not None else "—")
+                + f" · PGES validés : {tb.pges_valides}",
+                f"Activités en alerte (exécution < {tb.seuils[0]} % et délai consommé ≥ {tb.seuils[1]} %) : {len(tb.alertes)}"]
+                + [f"  - {x}" for x in res.alertes[:15]]
+                + ["", "Dans le classeur : filtres en haut à gauche (nature, région, entreprise, statut) ; détail des alertes dans l'onglet ALERTES.",
+                   "", "Message généré automatiquement.", "", "Cordialement"])
+            send(build_message(objet.format(date=f"{au:%d/%m/%Y}"), corps, res.documents,
+                               os.environ.get("MAIL_FROM") or os.environ.get("SMTP_USER", ""), to))
+            res.email = "envoyé à " + ", ".join(to)
+        log_execution(ref, res.report, f"tableau de bord ({declencheur})", now, documents=", ".join(Path(d).name for d in res.documents),
+                      email=res.email)
+        ref.base.save()
+    except Exception as e:                                                       # noqa: BLE001
+        res.ok, res.erreur = False, f"{type(e).__name__}: {e}"
+    return res
+

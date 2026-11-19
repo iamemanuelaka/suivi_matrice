@@ -8,7 +8,6 @@ chemins:
   fichier_admin: data/referentiel_admin.xlsx # fichier d'édition du référentiel par l'administrateur
   sauvegardes: data/sauvegardes
   sorties: sorties                           # documents générés (Word, Excel)
-  dashboard_modele: modeles/MATRICE_DE_SUIVI_DES_ACTIVITES_modele.xlsx
   kobo_csv: data/kobo/activites.csv          # liste des activités envoyée à Kobo (fichier média du formulaire)
   kobo_formulaire: kobo/questionnaire_suivi_pcr.xlsx
 
@@ -50,7 +49,12 @@ controles:
   seuil_alerte_taux: 30                      # alerte : taux d'exécution < 30 %
   seuil_alerte_delai: 50                     # ET délai consommé >= 50 % (mêmes seuils que le tableau de bord)
 
+# Variantes d'écriture d'une même ONG (comptée une seule fois dans les indicateurs)
+ong_alias:
+  "AGIR DURABLEMENT POUR LES ODD": "AGIR POUR ODD"
+  "AGIR POUR LES ODD": "AGIR POUR ODD"
+
 email:
   destinataires: []                          # ou variable d'environnement MAIL_TO (adresses séparées par des virgules)
   objet: "Suivi des activités PCR-CI – situation au {date}"
-  joindre_tableau_de_bord: false             # false : seules les matrices Word sont envoyées (tableau de bord Excel en refonte, toujours généré dans sorties/)
+  objet_tableau_de_bord: "Tableau de bord PCR-CI – situation au {date}"   # e-mail du second traitement (tableau de bord Excel)

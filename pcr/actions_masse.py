@@ -5,13 +5,12 @@ Le statut pris en compte est celui AFFICHÉ au tableau de bord : le statut saisi
 """
 from __future__ import annotations
 
-from .excel_gen import statut_chantier
 from .referentiel import PGES_VALEURS, STATUTS_CHANTIER, Referentiel, _choice, statut_deduit
 from .word_gen import latest_valid
 
 
 def statut_affiche(a: dict, suivi: dict | None) -> str:
-    return a["Statut_Chantier"] or statut_chantier(suivi["Taux_Execution_Physique"] if suivi else None)
+    return a["Statut_Chantier"] or statut_deduit(suivi["Taux_Execution_Physique"] if suivi else None)
 
 
 def pges_en_masse(ref: Referentiel, statut: str, valeur: str, seulement_vides: bool = False, user: str | None = None,

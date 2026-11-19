@@ -43,7 +43,7 @@ Pour que les techniciens voient la nouvelle activité dans Kobo : `python -m pcr
 * **Le fichier est réécrit depuis la base après `appliquer`** : une cellule refusée est remplacée par l'ancienne valeur.
   Lisez le rapport, puis ressaisissez la valeur corrigée.
 * Relancer `appliquer` sans nouvelle modification donne « 0 modifiée ».
-* Les valeurs sont écrites dans le tableau de bord **par code d'activité** : changer l'ordre des activités ne décale plus rien.
+* Le plus simple : l'application PCR-CI, volet **Activités** → onglet **Chantier** (statut, PGES, ONG, montant décaissé, dates), sans fichier ni commande.
 
 ## Statuts des chantiers : l'administrateur décide
 Les 4 statuts : `Non démarré`, `En cours`, `Achevé`, `Suspendu` (les anciens « Démarrage autorisé », « OS à reprendre » et « Abandonné » sont retirés).
@@ -59,11 +59,12 @@ Les 4 statuts : `Non démarré`, `En cours`, `Achevé`, `Suspendu` (les anciens 
   « Non démarré » avec un taux > 0, « En cours » à 100 %, « Achevé » sous 100 %. Un « Suspendu » n'est jamais signalé.
 * Un chantier `Achevé` n'est pas évalué pour les alertes (comme dans le tableau de bord).
 
-## Première mise en service (une seule fois, automatique)
-Avant, le montant décaissé, le PGES, les ONG… étaient saisis à la main dans le modèle Excel, ligne par ligne. Au **premier traitement** après la
-mise en service, ces valeurs sont **reprises une seule fois dans la base** (rapprochement par montant du marché, puis nom d'entreprise ; rien n'est
-écrasé ; chaque reprise est historisée sous l'utilisateur « Reprise du modèle »). Le rapport signale les lignes à vérifier.
-Pour la voir à l'avance : `python -m pcr migrer-valeurs-modele --a-blanc` ; pour la lancer à la main : `python -m pcr migrer-valeurs-modele`.
+## Tableau de bord Excel (second traitement)
+Le classeur `sorties/TABLEAU_DE_BORD_PCR-CI_du_JJ-MM-AA.xlsx` est **généré de A à Z depuis la base** (plus de modèle à entretenir) :
+onglet **TABLEAU DE BORD** (4 filtres, 6 cartes, graphique, aperçu des alertes), onglet **ALERTES** (liste complète, filtrable),
+onglet **DONNÉES** masqué (une ligne par activité). Il est produit et envoyé par le workflow **Tableau de bord PCR-CI**
+(chaque lundi 07:40, après les matrices, ou à la demande), par `python -m pcr tableau-de-bord [--mail]`, ou depuis l'application.
+Les variantes d'écriture d'une même ONG se déclarent dans `config/config.yaml` (rubrique `ong_alias`).
 
 ## ONG mobilisées : comment les régler
 * Colonne `ONG_Mobilisees` : choisir dans la liste (ONG déjà saisies) ou taper le nom. Deux valeurs sans nom : `Non mobilisée` et `Mobilisée`
@@ -91,4 +92,4 @@ Une soumission dont le taux baisse (ex. 40 % → 0 %) est mise « à vérifier �
 `python -m pcr suivis --statut A_VERIFIER`, puis `python -m pcr valider <id>` ou `python -m pcr rejeter <id>`.
 
 ## Capacité
-Le tableau de bord gère jusqu'à **500 activités**. Au-delà : `python -m pcr etendre-modele --capacite 1000`.
+Le tableau de bord est prévu pour 2 000 activités ; aucune extension n'est nécessaire.

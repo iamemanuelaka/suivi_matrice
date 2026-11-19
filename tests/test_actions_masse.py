@@ -69,5 +69,5 @@ def test_le_tableau_de_bord_affiche_tous_les_pges_valides_des_chantiers_en_cours
     pges_en_masse(ref, "En cours", "Validé")
     n = len(par_statut(ref, "En cours"))
     wb = calcule(ref, tmp_path, B19="En cours")                      # filtre statut « En cours »
-    assert wb["TABLEAU DE BORD"]["Q9"].value == f"{n} Validés"
-    assert wb["TABLEAU DE BORD"]["G9"].value.startswith(f"{n} /")
+    assert wb["TABLEAU DE BORD"]["J8"].value == f"{n} Validés"
+    assert wb["TABLEAU DE BORD"]["D8"].value.startswith(f"{n} /")

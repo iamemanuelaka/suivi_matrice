@@ -1,0 +1,65 @@
+name: Tableau de bord PCR-CI
+
+# Second traitement, indépendant des matrices Word : génère le tableau de bord Excel depuis la base et l'envoie par e-mail.
+# Il ne touche ni à Kobo ni aux données : il lit la base telle que le traitement des matrices l'a laissée.
+on:
+  schedule:
+    - cron: "40 7 * * 1"         # chaque lundi 07:40 UTC (= 07:40 à Abidjan), après le traitement des matrices de 07:00
+  workflow_dispatch:             # lancement manuel (onglet Actions ou application PCR-CI)
+    inputs:
+      send_mail:
+        description: "Envoyer le tableau de bord par e-mail"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write                # pour enregistrer le tableau de bord dans sorties/
+
+concurrency:                     # même file que le traitement des matrices : jamais deux écritures en même temps
+  group: suivi-pcr
+  cancel-in-progress: false
+
+jobs:
+  tableau-de-bord:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Africa/Abidjan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Tests (un code cassé ne doit jamais produire un tableau de bord faux)
+        id: tests
+        run: python -m pytest -q tests
+
+      - name: Tableau de bord (base -> Excel -> e-mail)
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: |
+          git pull --ff-only origin "${GITHUB_REF_NAME}" || true          # base la plus récente (traitement des matrices juste avant)
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.send_mail }}" = "true" ]; then MAIL="--mail"; else MAIL=""; fi
+          python -m pcr tableau-de-bord $MAIL --declencheur "${{ github.event_name }}" | tee resume.txt
+          cat resume.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enregistrer le tableau de bord dans le dépôt
+        if: always()
+        run: |
+          git config user.name "pcr-suivi-bot" && git config user.email "pcr-suivi-bot@users.noreply.github.com"
+          git add data sorties
+          if git diff --cached --quiet; then echo "Aucun changement."; else
+            git commit -m "Tableau de bord actualisé automatiquement ($(date +%d/%m/%Y' '%H:%M))"
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tableau-de-bord
+          path: sorties/TABLEAU_DE_BORD_*.xlsx
+          retention-days: 30

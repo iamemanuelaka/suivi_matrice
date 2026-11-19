@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_phase6_7 import ref, TEMPLATE  # noqa: F401,E402
+from test_phase6_7 import ref  # noqa: F401,E402
 from pcr.actions_masse import figer_statuts, statuts_a_verifier
 from pcr.admin_file import COLUMNS, INFO_ONLY, apply_admin_file, export_admin_file
 from pcr.pipeline import run
@@ -25,11 +25,14 @@ def deduit(ref, code):
     return statut_deduit(s["Taux_Execution_Physique"] if s else None)
 
 
-def test_le_filtre_statut_propose_toujours_les_4_statuts():
-    wb = zipfile.ZipFile(TEMPLATE).read("xl/workbook.xml").decode()
-    assert re.search(r'<definedName name="lstStatuts"[^>]*>PARAMETRES!\$I\$12:\$I\$16<', wb)      # liste fixe, plus dépendante des données
-    ws = load_workbook(TEMPLATE)["PARAMETRES"]
-    assert [ws.cell(r, 9).value for r in range(12, 17)] == ["Tous les statuts", "Non démarré", "En cours", "Achevé", "Suspendu"]
+def test_le_filtre_statut_propose_toujours_les_4_statuts(ref, tmp_path):
+    from pcr.tableau_de_bord_xlsx import generer
+    generer(ref, tmp_path / "tb.xlsx")
+    wb = load_workbook(tmp_path / "tb.xlsx")
+    do = wb["DONNÉES"]
+    col = [c.value for c in do[1]].index("Liste : Statut") + 1
+    assert [do.cell(r, col).value for r in range(2, 7)] == ["Tous les statuts", "Non démarré", "En cours", "Achevé", "Suspendu"]
+    assert "lstStatut" in wb.defined_names                                                       # liste fixe, indépendante des données
 
 
 def test_fichier_admin_colonne_suggestion_grise(ref, tmp_path):
@@ -98,5 +101,5 @@ def test_dashboard_et_filtres_suivent_les_statuts_de_l_admin(ref, tmp_path):
         attendu[ref.get(c)["Statut_Chantier"]] = attendu.get(ref.get(c)["Statut_Chantier"], 0) + 1
     for statut in ("Achevé", "Suspendu", "En cours", "Non démarré"):
         wb = calcule(ref, tmp_path, B19=statut)
-        assert wb["TABLEAU DE BORD"]["G9"].value == f"{attendu.get(statut, 0)} / {n}", statut
-    assert calcule(ref, tmp_path)["TABLEAU DE BORD"]["G9"].value == f"{n} / {n}"
+        assert wb["TABLEAU DE BORD"]["D8"].value == f"{attendu.get(statut, 0)} / {n}", statut
+    assert calcule(ref, tmp_path)["TABLEAU DE BORD"]["D8"].value == f"{n} / {n}"

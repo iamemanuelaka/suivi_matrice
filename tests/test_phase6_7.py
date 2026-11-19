@@ -12,25 +12,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pcr import mailer
 from pcr.baseline import import_baseline
 from pcr.config import load_config
-from pcr.excel_gen import generate_dashboard, statut_chantier, upper_noaccent
-from pcr.pipeline import alertes, run
+from pcr.pipeline import alertes, run, run_tableau_de_bord
+from pcr.referentiel import statut_deduit
+from pcr.tableau_de_bord_xlsx import generer
 from pcr.referentiel import Referentiel
 from pcr.seed import seed
 from pcr.store import Base
-from pcr.xlsx_patch import Package
 from pcr.word_gen import ordered_activities
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "sources"
 SOURCES = [("BS", SRC / "matrice_BS_texte.md"), ("MR", SRC / "matrice_MR_texte.md")]
-TEMPLATE = ROOT / "modeles" / "MATRICE_DE_SUIVI_DES_ACTIVITES_modele.xlsx"
 
 
 @pytest.fixture
 def ref(tmp_path):
     cfg = load_config()
-    cfg.data["chemins"] = {**cfg.data["chemins"], "base": str(tmp_path / "b.xlsx"), "sauvegardes": str(tmp_path / "sv"), "sorties": str(tmp_path / "out"),
-                            "dashboard_modele": str(TEMPLATE)}
+    cfg.data["chemins"] = {**cfg.data["chemins"], "base": str(tmp_path / "b.xlsx"), "sauvegardes": str(tmp_path / "sv"), "sorties": str(tmp_path / "out")}
     cfg.root = Path("/")
     r = Referentiel(Base(tmp_path / "b.xlsx"), cfg)
     seed(r, SOURCES)
@@ -44,116 +42,60 @@ def sub(i, code="BSBAF001", taux=20, jour="2026-11-02", obs="Fondation en cours"
             "avancement/observations_techniques": obs, "avancement/taux_execution": str(taux)}
 
 
-# ---------- Excel ----------
+# ---------- tableau de bord Excel (généré de A à Z) ----------
 def test_statut_derive_du_taux():
-    assert [statut_chantier(t) for t in (None, 0, 3, 99, 100)] == ["Non démarré", "Non démarré", "En cours", "En cours", "Achevé"]
-    assert upper_noaccent("Séguéla") == "SEGUELA" and upper_noaccent("Koun-fao") == "KOUN-FAO"
+    assert [statut_deduit(t) for t in (None, 0, 3, 99, 100)] == ["Non démarré", "Non démarré", "En cours", "En cours", "Achevé"]
 
 
-def test_dashboard_parties_inchangees_et_lignes_ecrites(ref, tmp_path):
-    out = tmp_path / "d.xlsx"
-    res = generate_dashboard(ref, TEMPLATE, out, datetime(2026, 11, 5, 8, 0))
-    assert res["lignes"] == 42 and not res["formules_ignorees"]
-    a, b = zipfile.ZipFile(TEMPLATE), zipfile.ZipFile(out)
-    assert a.namelist() == b.namelist()
-    changed = [n for n in a.namelist() if a.read(n) != b.read(n)]
-    assert sorted(changed) == ["xl/worksheets/sheet3.xml", "xl/worksheets/sheet6.xml"]       # matrice + META seulement ; graphiques/images/styles identiques
-    sh = Package(out).sheet("MATRICE DE SUIVI")
-    assert (sh.get(4, 4), sh.get(4, 5), sh.get(4, 6)) == ("KORO", "ETS NATHA SARL", 118356245)
-    assert sh.has_formula(4, 13) and sh.get(30, 9) == "Marchés ruraux" and sh.get(30, 3) == "BERE" and sh.get(30, 2) == 27
+def test_tableau_de_bord_trois_feuilles_filtres_et_donnees(ref, tmp_path):
+    res = generer(ref, tmp_path / "tb.xlsx", date(2026, 11, 5), datetime(2026, 11, 5, 8, 0))
+    assert res["activites"] == 42
+    wb = load_workbook(tmp_path / "tb.xlsx")
+    assert wb.sheetnames == ["TABLEAU DE BORD", "ALERTES", "DONNÉES"] and wb["DONNÉES"].sheet_state == "hidden"
+    tb = wb["TABLEAU DE BORD"]
+    assert sorted(str(dv.sqref) for dv in tb.data_validations.dataValidation) == ["B10", "B13", "B16", "B19"]      # 4 filtres
+    assert [tb[c].value for c in ("B10", "B13", "B16", "B19")] == ["Toutes les natures", "Toutes les régions",
+                                                                    "Toutes les entreprises", "Tous les statuts"]
+    assert len(tb._charts) == 1 and len(tb._images) == 1                          # graphique + logo
+    assert {"selNature", "selRegion", "selEntreprise", "selStatut", "dFiltre", "lstRegion"} <= set(wb.defined_names)
+    do = wb["DONNÉES"]
+    entetes = [c.value for c in do[1]]
+    codes = [r[1] for r in do.iter_rows(min_row=2, max_row=43, values_only=True)]
+    assert len(codes) == 42 and codes[0] and do.cell(44, 2).value is None
+    reg = entetes.index("Liste : Région") + 1
+    assert [do.cell(r, reg).value for r in range(2, 14)] == ["Toutes les régions", *sorted(ref.cfg.regions.values(), key=str.casefold)]
+    al = wb["ALERTES"]
+    assert al["A1"].value.startswith("Alertes et points d’attention — Voir tout (") and "Alertes" in al.tables
 
 
-def test_dashboard_ne_touche_a_aucune_formule(ref, tmp_path):
-    out = tmp_path / "d.xlsx"
-    generate_dashboard(ref, TEMPLATE, out)
-    import re
-    f = lambda p, n: re.findall(r"<f>.*?</f>", zipfile.ZipFile(p).read(n).decode("utf-8"))   # noqa: E731
-    for n in ("xl/worksheets/sheet3.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet5.xml"):
-        assert f(TEMPLATE, n) == f(out, n)
+def test_tableau_de_bord_suit_les_valeurs_de_l_administrateur(ref, tmp_path):
+    code = ref.activities()[0]["CODE_ACTIVITE"]
+    ref.update_activity(code, changes={"Statut_Chantier": "Suspendu", "PGES": "Validé", "ONG_Mobilisees": "ONG AGIR POUR LES ODD",
+                                       "Montant_Decaisse": 1_000_000})
+    generer(ref, tmp_path / "tb.xlsx", date(2026, 11, 5))
+    do = load_workbook(tmp_path / "tb.xlsx")["DONNÉES"]
+    e = [c.value for c in do[1]]
+    ligne = next(r for r in do.iter_rows(min_row=2, values_only=True) if r[1] == code)
+    assert ligne[e.index("Statut")] == "Suspendu" and ligne[e.index("PGES")] == "Validé"
+    assert ligne[e.index("ONG (clé)")] == "AGIR POUR ODD" and ligne[e.index("Décaissé")] == 1_000_000     # variante d'ONG ramenée au nom retenu
 
 
-def test_filtres_dashboard_suivent_les_valeurs_generees(ref, tmp_path, monkeypatch):
-    activities = [a for cat in ref.cfg.categories for a in ordered_activities(ref, cat)]
-    codes_bs = sorted(a["CODE_ACTIVITE"] for a in activities if a["Categorie"] == "BS")
-    rates = dict(zip(codes_bs[:3], (0, 50, 100)))
-    suivi = {
-        code: {"Taux_Execution_Physique": taux, "Observations_Techniques": ""}
-        for code, taux in rates.items()
-    }
-    monkeypatch.setattr("pcr.excel_gen.latest_valid", lambda _ref: suivi)
-
-    out = tmp_path / "dashboard_filtres.xlsx"
-    generate_dashboard(ref, TEMPLATE, out)
-    matrix = Package(out).sheet("MATRICE DE SUIVI")
-    last_row = 3 + len(activities)
-
-    valeurs_attendues = {
-        5: {a["Entreprise"] for a in activities if a["Entreprise"]},
-        9: {ref.cfg.categories[a["Categorie"]] for a in activities},
-        18: {statut_chantier(rates.get(a["CODE_ACTIVITE"])) for a in activities},
-    }
-    for col, expected in valeurs_attendues.items():
-        actual = {matrix.get(row, col) for row in range(4, last_row + 1) if matrix.get(row, col)}
-        assert actual == expected
-
-    wb = load_workbook(TEMPLATE, data_only=False)
-    calc = wb["CALCULS"]
-    for column, source in {"F": "E", "G": "I", "M": "R"}.items():
-        assert f"'MATRICE DE SUIVI'!${source}:${source}" in calc[f"{column}5"].value
-    assert "SEARCH(kwStatut,M5)" in calc["AE5"].value
-    assert "INDEX(catStatut,AE5)" in calc["N5"].value
-    status_rules = {
-        wb["PARAMETRES"][f"A{row}"].value: wb["PARAMETRES"][f"B{row}"].value
-        for row in range(13, 42)
-    }
-    assert status_rules["non d"] == "Non démarré"
-    assert status_rules["en cours"] == "En cours"
-    assert status_rules["achev"] == "Achevé"
-    assert valeurs_attendues[18] <= set(status_rules.values())
-
-    for column, source in {"AJ": "D", "AL": "E", "AN": "F", "AP": "G", "AR": "AC"}.items():
-        assert f"INDEX({source}$5:{source}$504" in calc[f"{column}6"].value
-    for column, source in {"CQ": "G", "CU": "D", "CY": "F", "DC": "N"}.items():
-        assert f"INDEX(${source}$5:${source}$504" in calc[f"{column}6"].value
-
-    names = wb.defined_names
-    for name, first, rank in (
-        ("lstNatures", "CQ", "CP"),
-        ("lstEnts", "CY", "CX"),
-    ):
-        attr_text = names[name].attr_text
-        assert f"CALCULS!${first}$5" in attr_text
-        assert f"COUNT(CALCULS!${rank}$5:${rank}$504)" in attr_text
-    # filtre « Statut » : liste FIXE des 4 statuts (pilotés par l'administrateur), plus dépendante des statuts présents dans les données
-    assert names["lstStatuts"].attr_text == "PARAMETRES!$I$12:$I$16"
-    assert [wb["PARAMETRES"][f"I{r}"].value for r in range(12, 17)] == ["Tous les statuts", "Non démarré", "En cours", "Achevé", "Suspendu"]
-    validations = {
-        str(dv.sqref): dv.formula1
-        for dv in wb["TABLEAU DE BORD"].data_validations.dataValidation
-    }
-    assert {cell: validations[cell] for cell in ("B10", "B13", "B16", "B19")} == {
-        "B10": "lstNatures",
-        "B13": "lstRegions",
-        "B16": "lstEnts",
-        "B19": "lstStatuts",
-    }
-    wb.close()
-
-
-def test_dashboard_refuse_un_depassement_de_capacite(ref, tmp_path, monkeypatch):
-    for i in range(4):
-        ref.create_activity("BS", "BAF")
-    # Le test porte sur le garde-fou, pas sur la capacité particulière du modèle livré.
-    # Simule un modèle dont la capacité est juste inférieure au nombre d'activités.
-    monkeypatch.setattr("pcr.excel_gen.capacite_modele", lambda _parts: len(ref.activities()) - 1)
-    with pytest.raises(ValueError, match="place"):
-        generate_dashboard(ref, TEMPLATE, tmp_path / "x.xlsx")
+def test_second_traitement_envoie_le_tableau_de_bord(ref, monkeypatch):
+    envoyes = []
+    monkeypatch.setattr("pcr.pipeline.send", lambda m: envoyes.append(m))
+    monkeypatch.setenv("MAIL_TO", "a@b.org")
+    res = run_tableau_de_bord(ref, date(2026, 11, 5), send_mail=True, declencheur="test")
+    assert res.ok and [Path(d).name for d in res.documents] == ["TABLEAU_DE_BORD_PCR-CI_du_05-11-26.xlsx"]
+    m = envoyes[0]
+    assert [p.get_filename() for p in m.iter_attachments()] == ["TABLEAU_DE_BORD_PCR-CI_du_05-11-26.xlsx"]
+    assert m["Subject"] == "Tableau de bord PCR-CI – situation au 05/11/2026" and "Activités en alerte" in m.get_body().get_content()
+    assert ref.base.rows("Journal_Executions")[-1]["Declencheur"] == "tableau de bord (test)"
 
 
 # ---------- cycle complet ----------
 def test_cycle_complet_sans_mail(ref):
     res = run(ref, [sub(1), sub(2, code="NOPE")], date(2026, 11, 5), declencheur="test")
-    assert res.ok and res.report.count("VALIDE") == 1 and res.report.count("REJETE") == 1 and len(res.documents) == 3
+    assert res.ok and res.report.count("VALIDE") == 1 and res.report.count("REJETE") == 1 and len(res.documents) == 2
     assert all(Path(d).exists() for d in res.documents)
     j = ref.base.rows("Journal_Executions")[-1]
     assert j["Resultat"] == "OK" and j["Traitees"] == 2 and "docx" in j["Documents"]
@@ -184,22 +126,12 @@ def test_envoi_email_avec_pieces_jointes(ref, monkeypatch):
     monkeypatch.setenv("MAIL_TO", "a@b.org, c@d.org")
     res = run(ref, [sub(1)], date(2026, 11, 5), send_mail=True)
     m = envoyes[0]
-    assert res.ok and res.email == "envoyé à a@b.org, c@d.org (matrices Word uniquement)" and m["To"] == "a@b.org, c@d.org"
-    # le tableau de bord Excel est généré mais n'est pas envoyé (refonte en cours) : seules les 2 matrices Word partent
-    assert len(res.documents) == 3 and any(Path(d).suffix == ".xlsx" for d in res.documents)
-    assert sorted(p.get_filename() for p in m.iter_attachments()) == sorted(Path(d).name for d in res.documents if Path(d).suffix == ".docx")
+    assert res.ok and res.email == "envoyé à a@b.org, c@d.org" and m["To"] == "a@b.org, c@d.org"
+    # le traitement des matrices n'envoie que les 2 matrices Word (le tableau de bord a son propre traitement)
+    assert sorted(p.get_filename() for p in m.iter_attachments()) == sorted(Path(d).name for d in res.documents)
+    assert all(Path(d).suffix == ".docx" for d in res.documents) and len(res.documents) == 2
     corps = m.get_body().get_content()
     assert "05/11/2026" in m["Subject"] and "Activités en alerte" in corps and "tableau de bord" not in corps
-
-
-def test_tableau_de_bord_joint_si_la_configuration_le_demande(ref, monkeypatch):
-    envoyes = []
-    monkeypatch.setattr("pcr.pipeline.send", lambda m: envoyes.append(m))
-    monkeypatch.setenv("MAIL_TO", "a@b.org")
-    ref.cfg.data["email"]["joindre_tableau_de_bord"] = True
-    res = run(ref, [sub(1)], date(2026, 11, 5), send_mail=True)
-    assert res.email == "envoyé à a@b.org" and len(list(envoyes[0].iter_attachments())) == 3
-    assert "et le tableau de bord" in envoyes[0].get_body().get_content()
 
 
 def test_email_sans_destinataire_refuse(ref, monkeypatch):
