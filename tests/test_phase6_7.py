@@ -184,9 +184,22 @@ def test_envoi_email_avec_pieces_jointes(ref, monkeypatch):
     monkeypatch.setenv("MAIL_TO", "a@b.org, c@d.org")
     res = run(ref, [sub(1)], date(2026, 11, 5), send_mail=True)
     m = envoyes[0]
-    assert res.ok and res.email == "envoyé à a@b.org, c@d.org" and m["To"] == "a@b.org, c@d.org"
-    assert sorted(p.get_filename() for p in m.iter_attachments()) == sorted(Path(d).name for d in res.documents)
-    assert "05/11/2026" in m["Subject"] and "Activités en alerte" in m.get_body().get_content()
+    assert res.ok and res.email == "envoyé à a@b.org, c@d.org (matrices Word uniquement)" and m["To"] == "a@b.org, c@d.org"
+    # le tableau de bord Excel est généré mais n'est pas envoyé (refonte en cours) : seules les 2 matrices Word partent
+    assert len(res.documents) == 3 and any(Path(d).suffix == ".xlsx" for d in res.documents)
+    assert sorted(p.get_filename() for p in m.iter_attachments()) == sorted(Path(d).name for d in res.documents if Path(d).suffix == ".docx")
+    corps = m.get_body().get_content()
+    assert "05/11/2026" in m["Subject"] and "Activités en alerte" in corps and "tableau de bord" not in corps
+
+
+def test_tableau_de_bord_joint_si_la_configuration_le_demande(ref, monkeypatch):
+    envoyes = []
+    monkeypatch.setattr("pcr.pipeline.send", lambda m: envoyes.append(m))
+    monkeypatch.setenv("MAIL_TO", "a@b.org")
+    ref.cfg.data["email"]["joindre_tableau_de_bord"] = True
+    res = run(ref, [sub(1)], date(2026, 11, 5), send_mail=True)
+    assert res.email == "envoyé à a@b.org" and len(list(envoyes[0].iter_attachments())) == 3
+    assert "et le tableau de bord" in envoyes[0].get_body().get_content()
 
 
 def test_email_sans_destinataire_refuse(ref, monkeypatch):

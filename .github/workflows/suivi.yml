@@ -75,5 +75,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: documents-actualises
-          path: sorties/
+          path: sorties/*.docx            # matrices Word uniquement (tableau de bord Excel en refonte)
           retention-days: 30

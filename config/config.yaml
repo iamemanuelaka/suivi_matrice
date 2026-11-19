@@ -53,3 +53,4 @@ controles:
 email:
   destinataires: []                          # ou variable d'environnement MAIL_TO (adresses séparées par des virgules)
   objet: "Suivi des activités PCR-CI – situation au {date}"
+  joindre_tableau_de_bord: false             # false : seules les matrices Word sont envoyées (tableau de bord Excel en refonte, toujours généré dans sorties/)

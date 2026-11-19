@@ -55,8 +55,15 @@ def alertes(ref: Referentiel, au: date) -> list[str]:
     return [t for _, t in sorted(out, reverse=True)]
 
 
-def mail_body(res: Result, au: date, a_verifier: list[str]) -> str:
-    L = ["Bonjour,", "", f"Veuillez trouver ci-joint les matrices de suivi (blocs sanitaires, marchés ruraux) et le tableau de bord, mis à jour au {au:%d/%m/%Y}.", "",
+def pieces_jointes(cfg, documents: list) -> list:
+    """Documents envoyés par e-mail : les matrices Word, et le tableau de bord Excel seulement si la configuration le demande."""
+    avec_tb = bool(cfg.data.get("email", {}).get("joindre_tableau_de_bord", False))
+    return [d for d in documents if Path(d).suffix.lower() == ".docx" or avec_tb]
+
+
+def mail_body(res: Result, au: date, a_verifier: list[str], avec_tableau_de_bord: bool = False) -> str:
+    joint = "les matrices de suivi (blocs sanitaires, marchés ruraux)" + (" et le tableau de bord" if avec_tableau_de_bord else "")
+    L = ["Bonjour,", "", f"Veuillez trouver ci-joint {joint}, {'mis' if avec_tableau_de_bord else 'mises'} à jour au {au:%d/%m/%Y}.", "",
          f"Nouvelles actualisations reçues : {len(res.report.nouvelles)} ({res.report.count('VALIDE')} valide(s), {res.report.count('A_VERIFIER')} à vérifier, "
          f"{res.report.count('REJETE')} rejetée(s))."]
     if a_verifier:
@@ -98,9 +105,11 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
             if not to:
                 raise MailError("Aucun destinataire (variable MAIL_TO ou email.destinataires dans la configuration).")
             a_verifier = [f"{i} {c} : {m}" for i, c, s, m in res.report.nouvelles if s == "A_VERIFIER"]
-            send(build_message(cfg.data["email"]["objet"].format(date=f"{au:%d/%m/%Y}"), mail_body(res, au, a_verifier), res.documents,
+            joints = pieces_jointes(cfg, res.documents)
+            avec_tb = any(Path(d).suffix.lower() != ".docx" for d in joints)
+            send(build_message(cfg.data["email"]["objet"].format(date=f"{au:%d/%m/%Y}"), mail_body(res, au, a_verifier, avec_tb), joints,
                                os.environ.get("MAIL_FROM") or os.environ.get("SMTP_USER", ""), to))
-            res.email = "envoyé à " + ", ".join(to)
+            res.email = "envoyé à " + ", ".join(to) + ("" if avec_tb else " (matrices Word uniquement)")
         log_execution(ref, res.report, declencheur, now, documents=", ".join(Path(d).name for d in res.documents), email=res.email)
         ref.base.save()
     except Exception as e:                                                       # noqa: BLE001 : tout échec est journalisé et signalé
