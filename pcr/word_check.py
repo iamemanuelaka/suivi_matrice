@@ -71,7 +71,7 @@ def generated_rows(path, cat) -> list[list[str]]:
     out = []
     for i in range(0, len(body), step):
         grp = body[i:i + step]
-        c = [_cell_text(cell) for cell in grp[0].cells]
+        c = [_cell_text(cell) for cell in grp[0].cells[:3]]           # la 4e colonne « Photo » n'existe pas dans les originaux
         for extra in grp[1:]:
             c[1] += " " + _cell_text(extra.cells[1])
         out.append(c)

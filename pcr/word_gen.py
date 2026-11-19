@@ -12,7 +12,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
@@ -23,7 +23,7 @@ from .config import normalize
 from .referentiel import Referentiel
 
 FONT, SIZE = "Arial", 9
-WIDTHS_CM = (10.2, 9.8, 6.7)
+WIDTHS_CM = (6.4, 6.4, 6.9, 7.0)          # Désignation, Avancement, Commentaires, Photo (total 26,7 cm)
 NUM_ID = 90
 
 def money(n) -> str:
@@ -161,14 +161,11 @@ def _cell3(cell, v):
         _labelled(cell, "Recommandations :", v["recommandations"])
 
 def _add_photo(cell, photo_filename: str | None) -> None:
-    """Insère la photo du site sous les observations dans la cellule, ou un message si absente.
+    """Insère la photo du site dans la cellule de la colonne « Photo » (vide si aucune photo).
     Gère les formats courants (JPEG, PNG, GIF, BMP, TIFF, WebP…).
     Les photos manquantes ou illisibles ne bloquent jamais la génération.
     """
     if not photo_filename:
-        p = _para(cell)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _run(p, "📷 Aucune photo fournie.")
         return
 
     # Kobo peut renvoyer un chemin ; on ne garde que le nom de fichier
@@ -214,7 +211,7 @@ def _add_photo(cell, photo_filename: str | None) -> None:
         p = _para(cell)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = p.add_run()
-        run.add_picture(str(path_to_insert), width=Cm(WIDTHS_CM[1] - 1.0))  # tient dans la colonne du milieu
+        run.add_picture(str(path_to_insert), width=Cm(WIDTHS_CM[3] - 0.5))  # occupe la colonne « Photo »
 
         # Nettoyage du temporaire si créé
         if path_to_insert != photo_path and path_to_insert.exists():
@@ -243,7 +240,7 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
         p.paragraph_format.space_after = Pt(4)
         _run(p, text, bold=True, size=size)
 
-    table = doc.add_table(rows=1, cols=3)
+    table = doc.add_table(rows=1, cols=4)
     table.style, table.alignment, table.autofit = "Table Grid", WD_TABLE_ALIGNMENT.CENTER, False
     
     # CORRECTION : Calcul de la date réelle des données pour éviter la date trompeuse
@@ -253,7 +250,7 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
     suffixe_alerte = f" (Données arrêtées au {date_donnees_reelles:%d/%m/%Y})" if delta_jours > 1 else ""
     titre_colonne_2 = f"Avancement physique au {au:%d/%m/%Y}{suffixe_alerte}"
     
-    for c, (title, w) in enumerate(zip(("Désignation Activité", titre_colonne_2, "Commentaires"), WIDTHS_CM)):
+    for c, (title, w) in enumerate(zip(("Désignation Activité", titre_colonne_2, "Commentaires", "Photo"), WIDTHS_CM)):
         cell = table.rows[0].cells[c]
         cell.width = Cm(w)
         _shade(cell, "D9E2F3")
@@ -270,15 +267,14 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
             if cat == "MR":
                 r._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
         first = rows[0]
-        c1, c2, c3 = first.cells
+        c1, c2, c3, c4 = first.cells
         if n_rows == 3:
             c1, c3 = rows[0].cells[0].merge(rows[2].cells[0]), rows[0].cells[2].merge(rows[2].cells[2])
+            c4 = rows[0].cells[3].merge(rows[2].cells[3])
         _cell1(c1, v, cat)
         mid = rows[0].cells[1]
         for line in v["obs"]:
             _dash(mid, line)
-        # Photo du site (après les observations techniques)
-        _add_photo(mid, v.get("photo"))
         if cat == "BS":
             _labelled(mid, "Taux d’avancement :", v["taux"], bold_value=True)
             _labelled(mid, "Délai consommé :", v["delai_conso"], bold_value=True)
@@ -290,6 +286,8 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
             _labelled(rows[1].cells[1], "Taux d’avancement :", v["taux"], bold_value=True)
             _labelled(rows[2].cells[1], "Délai consommé :", v["delai_conso"], bold_value=True)
         _cell3(c3, v)
+        c4.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        _add_photo(c4, v.get("photo"))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)

@@ -38,8 +38,8 @@ def test_deux_matrices_une_par_categorie(full):
 def test_structure_tableau_a_trois_colonnes_et_en_tetes(full):
     _, (bs, mr), _ = full
     t = docx.Document(bs).tables[0]
-    assert len(t.rows) == 27 and len(t.columns) == 3
-    assert [c.text for c in t.rows[0].cells] == ["Désignation Activité", "Avancement physique au 25/10/2026", "Commentaires"]
+    assert len(t.rows) == 27 and len(t.columns) == 4
+    assert [c.text for c in t.rows[0].cells] == ["Désignation Activité", "Avancement physique au 25/10/2026", "Commentaires", "Photo"]
     assert len(docx.Document(mr).tables[0].rows) == 1 + 16 * 3                 # 3 lignes par marché rural
 
 
