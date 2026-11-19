@@ -107,7 +107,7 @@ def generate_dashboard(ref: Referentiel, template, out_path, now: datetime | Non
         put("reception", a["Date_Reception_Provisoire"])
         put("agent", (s.get("Nom_Agent") or None) if s else None)
         put("resultats", None)
-        put("photo", None)
+        put("photo", s.get("Photo_du_site") if s else None)  # nom du fichier photo (colonne 23 « Photo preuve »)
         put("obs", "\n".join(l.strip() for l in (s["Observations_Techniques"] or "").splitlines() if l.strip()) if s else None)
         if isinstance(taux, (int, float)):
             taux_values.append(taux)
