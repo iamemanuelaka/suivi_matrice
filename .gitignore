@@ -4,6 +4,4 @@ __pycache__/
 *.tmp.xlsx
 data/sauvegardes/
 demo_sortie/
-# Photos téléchargées depuis Kobo (ne pas versionner)
-data/photos/*
-!data/photos/.gitkeep
+# data/photos/ est versionné : les photos Kobo sont enregistrées dans le dépôt

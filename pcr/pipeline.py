@@ -79,7 +79,7 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
             submissions = client.submissions()
             try:                                                                 # photos des sites (non bloquant)
                 from .kobo_photos import download_photos
-                ph = download_photos()
+                ph = download_photos(submissions, session=client.s)
                 if ph["erreurs"]:
                     res.avertissements.append(f"Photos Kobo : {len(ph['erreurs'])} non téléchargée(s) ({'; '.join(ph['erreurs'][:3])})")
             except Exception as e:                                               # noqa: BLE001

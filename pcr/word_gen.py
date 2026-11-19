@@ -168,8 +168,11 @@ def _add_photo(cell, photo_filename: str | None) -> None:
     if not photo_filename:
         return
 
-    # Kobo peut renvoyer un chemin ; on ne garde que le nom de fichier
-    photo_path = Path("data/photos") / Path(photo_filename).name
+    # Kobo peut renvoyer un chemin ; on ne garde que le nom de fichier.
+    # Les photos téléchargées sont enregistrées en « <nom sans extension>.jpg ».
+    nom = Path(photo_filename).name
+    photo_path = next((c for c in (Path("data/photos") / (Path(nom).stem + ".jpg"), Path("data/photos") / nom) if c.is_file()),
+                      Path("data/photos") / nom)
 
     if not photo_path.is_file():
         p = _para(cell)
