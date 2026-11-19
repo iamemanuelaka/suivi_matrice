@@ -2,3 +2,5 @@
 __pycache__/
 .pytest_cache/
 *.tmp.xlsx
+data/sauvegardes/
+demo_sortie/

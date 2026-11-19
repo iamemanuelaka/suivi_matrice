@@ -6,56 +6,12 @@ Le statut pris en compte est celui AFFICHÉ au tableau de bord : le statut saisi
 from __future__ import annotations
 
 from .excel_gen import statut_chantier
-from .referentiel import PGES_VALEURS, STATUTS_CHANTIER, Referentiel, _choice
+from .referentiel import PGES_VALEURS, STATUTS_CHANTIER, Referentiel, _choice, statut_deduit
 from .word_gen import latest_valid
 
 
 def statut_affiche(a: dict, suivi: dict | None) -> str:
     return a["Statut_Chantier"] or statut_chantier(suivi["Taux_Execution_Physique"] if suivi else None)
-
-
-def figer_statuts(ref: Referentiel, user: str | None = None, dry_run: bool = False) -> list[tuple[str, str]]:
-    """Enregistre le statut actuellement déduit du dernier suivi valide, sans écraser un choix admin.
-
-    En simulation, retourne les changements prévus sans écrire dans la base.
-    """
-    suivis = latest_valid(ref)
-    faits = []
-    for a in ref.activities():
-        if a.get("Statut_Chantier"):
-            continue
-        code = a["CODE_ACTIVITE"]
-        suivi = suivis.get(code)
-        taux = suivi["Taux_Execution_Physique"] if suivi else None
-        statut = statut_chantier(taux)
-        faits.append((code, statut))
-        if not dry_run:
-            ref.update_activity(code, user, {"Statut_Chantier": statut})
-    return faits
-
-
-def statuts_a_verifier(ref: Referentiel) -> list[str]:
-    """Signale les statuts admin incohérents avec le taux du dernier suivi valide.
-
-    « Suspendu » est une décision de gestion et ne peut pas être déduite du taux.
-    """
-    suivis = latest_valid(ref)
-    ecarts = []
-    for a in ref.activities():
-        statut = a.get("Statut_Chantier")
-        suivi = suivis.get(a["CODE_ACTIVITE"])
-        if not statut or statut == "Suspendu" or not suivi:
-            continue
-        taux = suivi.get("Taux_Execution_Physique")
-        if taux is None:
-            continue
-        suggere = statut_chantier(taux)
-        if statut != suggere:
-            ecarts.append(
-                f"{a['CODE_ACTIVITE']} : statut « {statut} » mais taux d’exécution physique à {taux:g} % "
-                f"(statut suggéré : « {suggere} »)."
-            )
-    return ([f"Statuts à vérifier ({len(ecarts)})"] + ecarts) if ecarts else []
 
 
 def pges_en_masse(ref: Referentiel, statut: str, valeur: str, seulement_vides: bool = False, user: str | None = None,
@@ -81,3 +37,41 @@ def pges_en_masse(ref: Referentiel, statut: str, valeur: str, seulement_vides: b
             if not dry_run:
                 ref.update_activity(code, user, {"PGES": valeur})
     return rap
+
+
+def figer_statuts(ref: Referentiel, user: str | None = None, dry_run: bool = False) -> list[tuple]:
+    """Prend le statut SUGGÉRÉ par le taux comme statut de l'administrateur, pour les activités actives qui n'en ont pas encore.
+    Point de départ du pilotage par l'administrateur : ensuite le statut ne suit plus automatiquement le taux (voir statuts_a_verifier)."""
+    suivis = latest_valid(ref)
+    faits = []
+    for a in ref.activities():
+        if a["Statut"] != "Actif" or a["Statut_Chantier"]:
+            continue
+        s = suivis.get(a["CODE_ACTIVITE"])
+        nouveau = statut_deduit(s["Taux_Execution_Physique"] if s else None)
+        faits.append((a["CODE_ACTIVITE"], nouveau))
+        if not dry_run:
+            ref.update_activity(a["CODE_ACTIVITE"], user, {"Statut_Chantier": nouveau})
+    return faits
+
+
+def statuts_a_verifier(ref: Referentiel) -> list[str]:
+    """Écarts entre le statut saisi par l'administrateur et le taux physique remonté du terrain (signalés dans le rapport du lundi)."""
+    suivis = latest_valid(ref)
+    lignes = []
+    for a in ref.activities():
+        st = a["Statut_Chantier"]
+        s = suivis.get(a["CODE_ACTIVITE"])
+        taux = s["Taux_Execution_Physique"] if s else None
+        if a["Statut"] != "Actif" or not st or taux is None:
+            continue
+        if st == "Non démarré" and taux > 0:
+            lignes.append(f"{a['CODE_ACTIVITE']} : statut « Non démarré » mais taux d'exécution {taux:g} %")
+        elif st == "En cours" and taux >= 100:
+            lignes.append(f"{a['CODE_ACTIVITE']} : statut « En cours » mais taux d'exécution {taux:g} % (achevé ?)")
+        elif st == "Achevé" and taux < 100:
+            lignes.append(f"{a['CODE_ACTIVITE']} : statut « Achevé » mais taux d'exécution {taux:g} %")
+    if not lignes:
+        return []
+    return [f"Statuts à vérifier ({len(lignes)}) : à confirmer ou corriger dans le fichier admin (colonne Statut_Chantier)"] + \
+           ["  " + x for x in lignes[:10]] + ([f"  … et {len(lignes) - 10} autre(s)"] if len(lignes) > 10 else [])

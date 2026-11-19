@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import xlsx_repair as X
-from .referentiel import Referentiel, taux_financier
+from .referentiel import Referentiel, statut_deduit, taux_financier
 from .word_gen import latest_valid, ordered_activities
 from .xlsx_capacity import capacite_modele
 from .xlsx_patch import Package
@@ -38,10 +38,8 @@ def upper_noaccent(s) -> str:
 
 
 def statut_chantier(taux) -> str:
-    """Statut dérivé du seul taux physique de la base (le nouveau questionnaire ne collecte pas de statut saisi)."""
-    if taux is None or taux <= 0:
-        return "Non démarré"
-    return "Achevé" if taux >= 100 else "En cours"
+    """Statut déduit du taux physique (utilisé seulement si l'administrateur n'a pas saisi de statut : colonne Statut_Chantier)."""
+    return statut_deduit(taux)
 
 
 def update_meta(pkg: Package, now: datetime, mean: float) -> None:

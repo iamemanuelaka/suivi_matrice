@@ -120,11 +120,13 @@ def test_filtres_dashboard_suivent_les_valeurs_generees(ref, tmp_path, monkeypat
     for name, first, rank in (
         ("lstNatures", "CQ", "CP"),
         ("lstEnts", "CY", "CX"),
-        ("lstStatuts", "DC", "DB"),
     ):
         attr_text = names[name].attr_text
         assert f"CALCULS!${first}$5" in attr_text
         assert f"COUNT(CALCULS!${rank}$5:${rank}$504)" in attr_text
+    # filtre « Statut » : liste FIXE des 4 statuts (pilotés par l'administrateur), plus dépendante des statuts présents dans les données
+    assert names["lstStatuts"].attr_text == "PARAMETRES!$I$12:$I$16"
+    assert [wb["PARAMETRES"][f"I{r}"].value for r in range(12, 17)] == ["Tous les statuts", "Non démarré", "En cours", "Achevé", "Suspendu"]
     validations = {
         str(dv.sqref): dv.formula1
         for dv in wb["TABLEAU DE BORD"].data_validations.dataValidation

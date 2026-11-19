@@ -26,13 +26,6 @@ CODE_RE = re.compile(r"^([A-Z]{2})([A-Z]{3})(\d{3})$")
 MAX_SEQ = 999
 
 
-def statut_deduit(taux) -> str:
-    """Déduit le statut chantier du taux physique, selon la règle du tableau de bord."""
-    if taux is None or taux <= 0:
-        return "Non démarré"
-    return "Achevé" if taux >= 100 else "En cours"
-
-
 def to_date(raw) -> date:
     if isinstance(raw, datetime):
         return raw.date()
@@ -115,6 +108,14 @@ def cle_ong(nom: str) -> str:
     import re
     t = _norm(nom or "").upper().replace("ONG ", "").replace("-", " ").replace("’", "'").replace(".", "")
     return re.sub(r"\s+", " ", t).strip()
+
+
+def statut_deduit(taux) -> str:
+    """Statut SUGGÉRÉ par le taux physique (0 % non démarré, 100 % achevé, sinon en cours). Il ne s'applique que si l'administrateur
+    n'a pas saisi de statut ; « Suspendu » ne se déduit jamais."""
+    if taux is None or taux <= 0:
+        return "Non démarré"
+    return "Achevé" if taux >= 100 else "En cours"
 
 
 def taux_financier(a: dict):

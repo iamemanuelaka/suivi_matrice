@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .calculs import indicateurs_delai
 from .excel_gen import generate_dashboard
+from .actions_masse import statuts_a_verifier
 from .migration_modele import reprise_automatique
 from .ingest import Report, ingest, log_execution
 from .kobo_form import KoboClient, KoboError
@@ -78,6 +79,7 @@ def run(ref: Referentiel, submissions=None, au: date | None = None, send_mail: b
             submissions = client.submissions()
         res.report = ingest(ref, submissions, au, declencheur, log=False)
         res.avertissements += reprise_automatique(ref, cfg.path("dashboard_modele"))
+        res.avertissements += statuts_a_verifier(ref)
         res.alertes = alertes(ref, au)
         res.documents = [*generate_all(ref, au, out_dir),
                          Path(generate_dashboard(ref, cfg.path("dashboard_modele"), out_dir / f"MATRICE_DE_SUIVI_DES_ACTIVITES_du_{au:%d-%m-%y}.xlsx", now)["fichier"])]

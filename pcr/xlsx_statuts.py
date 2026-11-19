@@ -1,5 +1,6 @@
 """Limite les statuts du tableau de bord aux 4 statuts retenus : Non démarré, En cours, Achevé, Suspendu.
 
+Le filtre « Statut » du tableau de bord propose toujours ces 4 statuts (liste fixe, feuille PARAMETRES I12:I16).
 Le modèle d'origine contenait trois statuts supplémentaires dans ses réglages (feuille PARAMETRES, table « Lecture du statut des travaux ») :
 « Démarrage autorisé », « OS à reprendre » et « Abandonné » ; la feuille CALCULS testait aussi « Abandonné » dans la colonne « actif ».
 La fonction retire ces réglages sans toucher au reste (rangs et ordre de priorité des 4 statuts conservés, filtre « Statut » inchangé).
@@ -43,6 +44,10 @@ def limiter_statuts(src, dst) -> dict:
                 f.text, n = nouveau, n + 1
     calc.dirty = True
     parts[f_calc] = calc.tobytes()
+    # filtre « Statut » : liste FIXE des 4 statuts (avant : seuls les statuts présents dans les données étaient proposés)
+    wb = parts["xl/workbook.xml"].decode("utf-8")
+    wb = re.sub(r'(<definedName name="lstStatuts"[^>]*>)[^<]*(</definedName>)', r"\1PARAMETRES!$I$12:$I$16\2", wb)
+    parts["xl/workbook.xml"] = wb.encode("utf-8")
     with zipfile.ZipFile(src) as z:
         infos = z.infolist()
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:

@@ -67,6 +67,8 @@ def main(argv=None) -> int:
     pm.add_argument("--valeur", default="Validé", help="valeur du PGES à appliquer (défaut : Validé)")
     pm.add_argument("--seulement-vides", action="store_true", help="ne touche pas aux PGES déjà renseignés")
     pm.add_argument("--a-blanc", action="store_true", help="affiche ce qui serait modifié sans rien écrire")
+    sf = sub.add_parser("statuts-figer", help="prend le statut suggéré par le taux comme statut de l'administrateur, pour les activités qui n'en ont pas encore")
+    sf.add_argument("--a-blanc", action="store_true", help="affiche ce qui serait enregistré sans rien écrire")
     sub.add_parser("ong-liste", help="liste les ONG saisies (nombre d'activités) et signale les doublons d'écriture")
     ro = sub.add_parser("renommer-ong", help="remplace une ONG (et ses variantes d'écriture) par le nom retenu dans toutes les activités")
     ro.add_argument("ancien"), ro.add_argument("nouveau")
@@ -183,6 +185,19 @@ def main(argv=None) -> int:
         for code, ancien in rap["gardees"]:
             print(f"  = {code} : conservé ({ancien!r})")
         if rap["modifiees"] and not a.a_blanc:
+            problems = ref.verify()
+            if problems:
+                print("Contrôle d'intégrité en échec, rien n'est enregistré :", *problems, sep="\n  ")
+                return 1
+            base.save(backups)
+            export_admin_file(ref, cfg.path("fichier_admin"))
+    elif a.cmd == "statuts-figer":
+        from .actions_masse import figer_statuts
+        faits = figer_statuts(ref, dry_run=a.a_blanc)
+        print(("[À BLANC] " if a.a_blanc else "") + f"{len(faits)} activité(s) reçoivent leur statut d'administrateur.")
+        for code, st in faits:
+            print(f"  ~ {code} : Statut_Chantier -> {st!r}")
+        if faits and not a.a_blanc:
             problems = ref.verify()
             if problems:
                 print("Contrôle d'intégrité en échec, rien n'est enregistré :", *problems, sep="\n  ")

@@ -11,11 +11,12 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from .referentiel import CHANTIER, GENERIQUES_ONG, EDITABLE, FIXED, PGES_VALEURS, STATUTS, STATUTS_CHANTIER, Referentiel, coerce, taux_financier
+from .word_gen import latest_valid
+from .referentiel import statut_deduit, CHANTIER, GENERIQUES_ONG, EDITABLE, FIXED, PGES_VALEURS, STATUTS, STATUTS_CHANTIER, Referentiel, coerce, taux_financier
 
 CLEAR = "#VIDER"
-COLUMNS = (["CODE_ACTIVITE", "Categorie", "Region"] + FIXED + ["Date_Fin_Previsionnelle"] + CHANTIER[:1] + ["Taux_Financier"] + CHANTIER[1:] + ["Statut"])
-INFO_ONLY = {"CODE_ACTIVITE", "Date_Fin_Previsionnelle", "Taux_Financier"}      # produits par le système, ignorés à la lecture
+COLUMNS = (["CODE_ACTIVITE", "Categorie", "Region"] + FIXED + ["Date_Fin_Previsionnelle"] + CHANTIER[:1] + ["Taux_Financier", "Date_Remise_Site", "Statut_Chantier", "Statut_Suggere", "PGES", "ONG_Mobilisees", "Date_Reception_Provisoire", "Statut"])
+INFO_ONLY = {"CODE_ACTIVITE", "Date_Fin_Previsionnelle", "Taux_Financier", "Statut_Suggere"}      # produits par le système, ignorés à la lecture
 FILLS = {"fixe": PatternFill("solid", fgColor="1F4E78"), "info": PatternFill("solid", fgColor="7F7F7F")}
 WIDTHS = {"ONG_Mobilisees": 28, "PGES": 24, "Statut_Chantier": 16, "Designation": 60, "Localite": 40, "Entreprise": 32, "Departement": 24, "Bureau_Controle": 30}
 
@@ -38,6 +39,7 @@ def export_admin_file(ref: Referentiel, path) -> Path:
     """Écrit le fichier d'édition à partir de la base (à relancer après chaque application pour voir les codes générés)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    suivis = latest_valid(ref)
     wb = Workbook()
     ws = wb.active
     ws.title = "Activites"
@@ -49,7 +51,8 @@ def export_admin_file(ref: Referentiel, path) -> Path:
         ws.column_dimensions[cell.column_letter].width = WIDTHS.get(h, 18)
     for r, a in enumerate(ref.activities(), 2):
         for c, h in enumerate(COLUMNS, 1):
-            cell = ws.cell(r, c, taux_financier(a) if h == "Taux_Financier" else a[h])
+            cell = ws.cell(r, c, taux_financier(a) if h == "Taux_Financier" else
+                           statut_deduit((suivis.get(a["CODE_ACTIVITE"]) or {}).get("Taux_Execution_Physique")) if h == "Statut_Suggere" else a[h])
             cell.font = Font(name="Arial", size=10, color="7F7F7F" if h in INFO_ONLY else "000000")
             if h in ("Date_OS", "Date_Debut", "Date_Fin_Previsionnelle", "Date_Remise_Site", "Date_Reception_Provisoire"):
                 cell.number_format = "DD/MM/YYYY"
@@ -98,7 +101,8 @@ def export_admin_file(ref: Referentiel, path) -> Path:
         "Dates au format JJ/MM/AAAA. Montants en FCFA, sans texte. Délai en mois entiers.",
         "FINANCES / CHANTIER (gérés par l'administrateur, pas par les techniciens) : Montant_Decaisse (le taux financier = décaissé / marché est calculé),",
         "   Date_Remise_Site, Statut_Chantier (Non démarré, En cours, Achevé, Suspendu), PGES (liste), ONG_Mobilisees (nom de l'ONG, ou « Non mobilisée »),",
-        "   Date_Reception_Provisoire. Statut_Chantier vide = déduit automatiquement du taux (0 % non démarré, 100 % achevé, sinon en cours).",
+        "   Date_Reception_Provisoire. Statut_Chantier : L'ADMINISTRATEUR décide (liste : Non démarré, En cours, Achevé, Suspendu) ; la colonne grise Statut_Suggere",
+        "   donne la suggestion d'après le taux (0 % non démarré, 100 % achevé, sinon en cours). Statut_Chantier vide = c'est la suggestion qui s'applique.",
         "Le montant décaissé ne peut pas dépasser le montant du marché.",
         "ONG : la liste propose les ONG déjà saisies (pour garder la même orthographe) ; un nouveau nom peut être tapé. « Mobilisée » = ONG mobilisée dont le nom n'est pas connu.",
         "   Le tableau de bord compte les ONG DISTINCTES : une même ONG écrite de deux façons serait comptée deux fois -> commandes ong-liste et renommer-ong.",
