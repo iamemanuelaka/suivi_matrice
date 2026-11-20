@@ -50,3 +50,68 @@ def test_telechargement_jpeg_oriente_et_non_retelecharge(tmp_path):
     assert s.urls == [SUB["_attachments"][0]["download_large_url"]]
     assert Image.open(tmp_path / "1763560000123.jpg").size == (300, 400)          # orientation corrigée
     assert download_photos([SUB], session=s, dest=tmp_path)["deja_presentes"] == 1 and len(s.urls) == 1
+
+
+# --- 4 photos par suivi ------------------------------------------------------------------------
+def _sub4(n_photos=4):
+    noms = ("Photo_du_site", "Photo_du_site_001", "Photo_du_site_002", "Photo_du_site_003")[:n_photos]
+    sub = {"_id": 88, "_attachments": []}
+    for i, nom in enumerate(noms):
+        sub[f"avancement/{nom}"] = f"img{i}.jpg"
+        sub["_attachments"].append({"question_xpath": f"avancement/{nom}", "media_file_basename": f"img{i}.jpg",
+                                    "download_url": f"https://kf.example/a/{i}/"})
+    return sub
+
+
+def test_les_4_photos_sont_telechargees(tmp_path):
+    s = FakeSession()
+    r = download_photos([_sub4()], session=s, dest=tmp_path)
+    assert r["telechargees"] == 4 and r["erreurs"] == [] and sorted(p.name for p in tmp_path.iterdir()) == [f"img{i}.jpg" for i in range(4)]
+    assert photo_attachment(_sub4(), "Photo_du_site_002")[0] == "img2.jpg"                  # chaque question retrouve SA pièce jointe
+
+
+def test_les_4_photos_dans_la_base_avec_rattrapage(tmp_path):
+    import shutil
+    from pcr.config import load_config
+    from pcr.ingest import ingest
+    from pcr.referentiel import Referentiel
+    from pcr.store import Base
+    shutil.copy(Path(__file__).parent / "app_ui" / "base_reference.xlsx", tmp_path / "b.xlsx")
+    ref = Referentiel(Base(tmp_path / "b.xlsx"), load_config())
+    sub = {"_id": 777, "_submission_time": "2026-11-20T09:00:00", "identification/code_activite": "BSBAF001",
+           "identification/date_actualisation": "2026-11-20", "avancement/taux_execution": "70",
+           "avancement/observations_techniques": "Dallage", "avancement/Photo_du_site": "a.jpg"}
+    ingest(ref, [sub], date(2026, 11, 20))
+    ligne = lambda: next(r for r in ref.base.rows("Suivi_Activites") if str(r["ID_SOUMISSION_KOBO"]) == "777")   # noqa: E731
+    assert ligne()["Photo_du_site"] == "a.jpg" and ligne()["Photo_du_site_003"] is None
+    ingest(ref, [{**sub, "avancement/Photo_du_site_001": "b.jpg", "avancement/Photo_du_site_003": "d.jpg"}], date(2026, 11, 20))
+    assert (ligne()["Photo_du_site_001"], ligne()["Photo_du_site_003"], ligne()["Photo_du_site"]) == ("b.jpg", "d.jpg", "a.jpg")
+
+
+def test_cellule_photo_divisee_en_4_dans_le_word(tmp_path, monkeypatch):
+    import shutil
+    from pcr.config import load_config
+    from pcr.ingest import ingest
+    from pcr.referentiel import Referentiel
+    from pcr.store import Base
+    from pcr.word_gen import render
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data" / "photos").mkdir(parents=True)
+    for i in range(4):
+        Image.new("RGB", (1200, 1600) if i % 2 else (1600, 1200), (40 * i, 90, 160)).save(tmp_path / "data" / "photos" / f"p{i}.jpg")
+    shutil.copy(Path(__file__).parent / "app_ui" / "base_reference.xlsx", tmp_path / "b.xlsx")
+    ref = Referentiel(Base(tmp_path / "b.xlsx"), load_config())
+    base = {"_submission_time": "2026-11-20T09:00:00", "identification/date_actualisation": "2026-11-20",
+            "avancement/taux_execution": "70", "avancement/observations_techniques": "Dallage"}
+    quatre = {f"avancement/{n}": f"p{i}.jpg" for i, n in enumerate(("Photo_du_site", "Photo_du_site_001", "Photo_du_site_002", "Photo_du_site_003"))}
+    ingest(ref, [{**base, "_id": 1, "identification/code_activite": "BSBAF001", **quatre},
+                 {**base, "_id": 2, "identification/code_activite": "BSBAF002", "avancement/Photo_du_site": "p1.jpg"}], date(2026, 11, 20))
+    doc = docx.Document(render(ref, "BS", date(2026, 11, 20), tmp_path / "BS.docx"))
+    t = doc.tables[0]
+    c1, c2 = t.rows[1].cells[3], t.rows[2].cells[3]
+    assert len(c1.tables) == 1 and len(c1.tables[0].rows) == 2 and len(c1.tables[0].columns) == 2   # 2 × 2
+    images = lambda cell: cell._tc.xml.count("<pic:pic")                                            # noqa: E731
+    assert images(c1) == 4 and images(c2) == 1 and not c2.tables                                    # une seule photo : pas de grille
+    formes = [doc.inline_shapes[i] for i in range(len(doc.inline_shapes))]
+    assert len(formes) == 5 and all(f.height.cm <= 2.61 and f.width.cm <= 3.11 for f in formes[:4])   # chaque photo tient dans sa case
+    assert formes[4].height.cm <= 4.81                                                               # photo seule : 4,8 cm au plus

@@ -28,6 +28,14 @@ def ws(tmp_path, monkeypatch):
     os.chdir(cwd)
 
 
+def alertes_du_jour(w):
+    from pcr.config import load_config
+    from pcr.indicateurs import calculer
+    from pcr.referentiel import Referentiel
+    from pcr.store import Base
+    return len(calculer(Referentiel(Base(w / "data" / "base_pcr.xlsx"), load_config())).alertes)
+
+
 async def attendre(condition, delai=10.0):
     """La table est rechargée en arrière-plan après la notification : on attend qu'elle soit à jour."""
     for _ in range(int(delai / 0.05)):
@@ -49,7 +57,7 @@ def test_tableau_de_bord_et_menu(ws):
         await user.open("/")
         await user.should_see("Activités sélectionnées / total")
         await user.should_see("42 / 42")
-        await user.should_see("9 / 42")                                  # activités en alerte, comme le classeur
+        await user.should_see(f"{alertes_du_jour(ws)} / 42")             # activités en alerte (dépend de la date du jour), comme le classeur
         await user.should_see("Consommation des délais par région", retries=50)
         for page in ("Lancer le suivi", "Suivis à valider", "Activités", "Paramètres"):
             await user.should_see(page)
