@@ -87,6 +87,36 @@ avec « Marchés ruraux », 16 / 42. Toutes les activités comptent (y compris `
 * `python -m pcr verifier` — contrôle de cohérence du référentiel · `python -m pcr lister` — liste des activités.
 * Une copie de la base est faite avant chaque traitement (`data/sauvegardes/`) : pour revenir en arrière, remplacer `data/base_pcr.xlsx`.
 
+## Structures du formulaire Kobo (choix en cascade)
+Dans le formulaire, l'agent choisit sa **structure**, puis le **type d'activité** (seuls les types présents dans ses régions sont
+proposés), puis l'**activité** de ce type dans ses régions (exemple : « UTR du Béré » → « Blocs sanitaires » → les 3 blocs du Béré).
+Les codes ne sont pas montrés aux agents : ils voient « Blocs sanitaires · Béré · Kounahiri — ENTREPRISE ».
+
+Les **types d'activités** (`types_activite.csv`) sont générés depuis les catégories de `config/config.yaml` : une nouvelle catégorie
+ajoutée à la configuration apparaît automatiquement dans le formulaire dès qu'elle a une activité.
+
+La liste est le fichier `kobo/structures.csv` (une ligne par structure) :
+
+| Colonne | Contenu | Exemple |
+| --- | --- | --- |
+| `name` | identifiant sans espace (lettres, chiffres, `_`) | `UTR_BER` |
+| `label` | nom affiché à l'agent | `UTR du Béré` |
+| `regions` | codes des régions couvertes, séparés par des espaces, ou `*` pour toutes | `BER` · `POR TCH` · `*` |
+
+Pour **ajouter une structure** : ajouter une ligne au fichier, pousser. Le traitement du lundi (ou le bouton « Envoyer la liste des
+activités à Kobo » de l'application, ou `python -m pcr kobo-sync`) envoie `structures.csv` et `activites.csv` à Kobo. Le fichier est
+contrôlé avant tout envoi : nom en double ou avec espace, région inconnue, ou activité qu'aucune structure ne couvre → envoi refusé
+avec le message exact. La structure choisie est enregistrée avec chaque suivi (colonne `Structure` de la base).
+
+**Photos** : le formulaire demande 4 photos (`Photo_du_site`, `Photo_du_site_001` à `_003`). Toutes sont téléchargées dans
+`data/photos/` (JPEG redressé, 1 600 px) ; dans les matrices Word, la cellule « Photo » est divisée en 4 (chaque photo tient dans
+3,1 × 2,6 cm) ; une photo seule occupe la largeur de la cellule. Les originaux restent disponibles pour un envoi en grand.
+
+**Mise en place (une fois)** — l'ordre compte, sinon les listes du formulaire seraient vides :
+1. Pousser les fichiers, puis lancer le workflow **Suivi des activités PCR-CI** (il envoie les trois listes à Kobo).
+2. Dans Kobo : projet → **Formulaire** → **Remplacer le formulaire** avec `kobo/questionnaire_suivi_pcr.xlsx`, puis **Redéployer**.
+3. Sur les téléphones (Kobo Collect) : **Obtenir un formulaire vierge** pour charger la nouvelle version.
+
 ## Soumissions Kobo « à vérifier »
 Une soumission dont le taux baisse (ex. 40 % → 0 %) est mise « à vérifier » et **n'est pas utilisée** tant qu'elle n'est pas validée :
 `python -m pcr suivis --statut A_VERIFIER`, puis `python -m pcr valider <id>` ou `python -m pcr rejeter <id>`.

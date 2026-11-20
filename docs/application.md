@@ -2,11 +2,17 @@
 
 L'application fait tout ce que faisaient les commandes `python -m pcr …`, avec des boutons. Elle ne demande ni Python ni git sur l'ordinateur.
 
-## 1. Installer
+## 1. Fabriquer puis installer
 
-1. Sur GitHub, ouvrez le dépôt puis **Releases** (ou **Actions → Application Windows (installateur)** → dernier run → *Artifacts*).
-2. Téléchargez `PCR-CI-Installation-x.y.z.exe` et lancez-le. Aucun droit administrateur n'est nécessaire.
-3. Une icône **PCR-CI** apparaît sur le bureau.
+**Fabriquer (une fois par version, sur l'ordinateur du responsable, qui a Python 3.12 de python.org)** : double-cliquer sur
+`FABRIQUER_APPLICATION.bat` à la racine du dépôt. Il installe ce qu'il faut dans un dossier à part (`.venv-fabrication`), vérifie
+le code (tests), fabrique l'application et ouvre le dossier `dist` : `PCR-CI-portable-AAAA.MM.JJ.zip` (et
+`PCR-CI-Installation-AAAA.MM.JJ.exe` si Inno Setup 6 est installé). Première fois : 10 minutes environ, ensuite 3 à 5.
+
+**Installer (sur l'ordinateur du gestionnaire, qui n'a besoin ni de Python ni de Git)** :
+- ZIP portable : le dézipper (par exemple dans Documents), puis double-clic sur `PCR-CI.exe` ; clic droit → Envoyer vers → Bureau
+  pour avoir l'icône sur le bureau ;
+- ou installateur : le lancer, « Créer une icône sur le bureau », Installer.
 
 > Windows peut afficher « Windows a protégé votre ordinateur » (logiciel non signé) : cliquez sur **Informations complémentaires → Exécuter quand même**.
 
@@ -54,4 +60,4 @@ python -m pytest -q tests       # inclut les tests de l'interface (utilisateur s
 ```
 
 Code : `pcr_app/services.py` (une fonction par bouton, appelle le moteur `pcr`), `pcr_app/github_sync.py` (synchronisation par l'API GitHub), `pcr_app/app.py` (écrans).
-Nouvelle version de l'installateur : `git tag v1.1.0 && git push --tags` (workflow `application-windows.yml`).
+Nouvelle version de l'application : relancer `FABRIQUER_APPLICATION.bat` et redonner le ZIP (paramètres et données du gestionnaire conservés).
