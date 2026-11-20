@@ -1,4 +1,4 @@
-; Installateur Windows de l'application PCR-CI (Inno Setup 6).
+﻿; Installateur Windows de l'application PCR-CI (Inno Setup 6).
 ; Installation sans droits administrateur, dans le profil de l'utilisateur.
 #define AppName "PCR-CI – Suivi des activités"
 #ifndef AppVersion
