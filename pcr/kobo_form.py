@@ -2,6 +2,11 @@
 
   - la LISTE des activités (activites.csv) est générée depuis la base : c'est elle qui alimente la sélection du technicien
     et l'affichage en lecture seule des informations de référence (pulldata) ;
+  - la LISTE des structures (kobo/structures.csv, tenue à la main : une ligne par structure, colonne « regions » = codes des
+    régions couvertes séparés par des espaces, ou « * » pour toutes) ;
+  - la LISTE des types d'activités (types_activite.csv, générée depuis les catégories de config.yaml) ;
+  - choix en cascade : structure -> types d'activités de ses régions -> activités de ce type dans ses régions
+    (colonnes « structures » et « type » des CSV + choice_filter) ;
   - le formulaire XLSForm est généré par script (il ne change que si les champs de suivi changent) ;
   - la synchronisation envoie le CSV à Kobo (fichier média du formulaire) puis redéploie.
 """
@@ -20,7 +25,14 @@ from urllib3.util.retry import Retry
 from .referentiel import Referentiel
 
 CSV_NAME = "activites.csv"
-CSV_COLUMNS = ["name", "label", "ref_titre", "ref_marche", "ref_suivi"]
+CSV_COLUMNS = ["name", "label", "ref_titre", "ref_marche", "ref_suivi", "structures", "type"]
+STRUCTURES_NAME = "structures.csv"
+STRUCTURES_COLUMNS = ["name", "label", "regions"]
+TYPES_NAME = "types_activite.csv"
+TYPES_COLUMNS = ["name", "label", "structures"]
+# Cascade : structure -> types d'activités présents dans ses régions -> activités de ce type dans ses régions
+FILTRE_TYPES = "selected(structures, ${structure})"
+FILTRE_ACTIVITES = "selected(structures, ${structure}) and type = ${type_activite}"
 FORM_ID = "suivi_activites_pcr"
 
 
@@ -48,14 +60,57 @@ def derniers_suivis(ref: Referentiel) -> dict:
     return {c: v[1] for c, v in best.items()}
 
 
-def activities_csv_rows(ref: Referentiel) -> list[dict]:
-    """Une ligne par activité ACTIVE (les activités archivées ne sont plus proposées aux techniciens)."""
+# --------------------------------------------------------------------------
+# Structures (UTR des régions, puis toute structure ajoutée au fichier)
+# --------------------------------------------------------------------------
+class StructuresError(ValueError):
+    pass
+
+
+def load_structures(cfg) -> list[dict]:
+    """Lit kobo/structures.csv et le contrôle : noms uniques sans espace, régions connues (ou « * »)."""
+    chemin = cfg.path("kobo_structures")
+    if not chemin.is_file():
+        raise StructuresError(f"Liste des structures introuvable : {chemin}")
+    with open(chemin, encoding="utf-8-sig", newline="") as f:
+        lignes = [{k.strip(): (v or "").strip() for k, v in r.items() if k} for r in csv.DictReader(f)]
+    out, vus = [], set()
+    for n, r in enumerate(lignes, 2):
+        if not any(r.values()):
+            continue
+        nom, lib, regs = r.get("name", ""), r.get("label", ""), r.get("regions", "").split()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_\-.]*", nom):
+            raise StructuresError(f"structures.csv ligne {n} : nom « {nom} » invalide (lettres, chiffres, _ sans espace).")
+        if nom in vus:
+            raise StructuresError(f"structures.csv ligne {n} : nom « {nom} » en double.")
+        if not lib:
+            raise StructuresError(f"structures.csv ligne {n} : libellé manquant pour {nom}.")
+        inconnues = [x for x in regs if x != "*" and x not in cfg.regions]
+        if not regs or inconnues:
+            raise StructuresError(f"structures.csv ligne {n} : régions {' '.join(inconnues) or '(aucune)'} inconnues "
+                                  f"(codes possibles : {' '.join(cfg.regions)} ou *).")
+        vus.add(nom)
+        out.append({"name": nom, "label": _clean(lib), "regions": " ".join(regs)})
+    if not out:
+        raise StructuresError("structures.csv ne contient aucune structure.")
+    return out
+
+
+def structures_de(region: str, structures: list[dict]) -> list[str]:
+    return [s["name"] for s in structures if "*" in s["regions"].split() or region in s["regions"].split()]
+
+
+def activities_csv_rows(ref: Referentiel, structures: list[dict] | None = None) -> list[dict]:
+    """Une ligne par activité ACTIVE (les activités archivées ne sont plus proposées aux techniciens).
+    Colonne « structures » : structures qui peuvent la choisir (filtre en cascade du formulaire)."""
+    structures = load_structures(ref.cfg) if structures is None else structures
     last, rows = derniers_suivis(ref), []
     for a in sorted(ref.activities(), key=lambda x: x["CODE_ACTIVITE"]):
         if a["Statut"] != "Actif":
             continue
         code, region = a["CODE_ACTIVITE"], ref.cfg.regions.get(a["Region"], a["Region"])
-        label = f"{code} · {region} · {_clean(a['Departement']) or '—'} — {_clean(a['Entreprise']) or 'titulaire non renseigné'}"
+        nature = ref.cfg.categories.get(a["Categorie"], a["Categorie"])
+        label = f"{nature} · {region} · {_clean(a['Departement']) or '—'} — {_clean(a['Entreprise']) or 'titulaire non renseigné'}"
         pieces = []
         if a["Entreprise"]:
             pieces.append(f"Titulaire : {_clean(a['Entreprise'])}")
@@ -70,61 +125,116 @@ def activities_csv_rows(ref: Referentiel) -> list[dict]:
         s = last.get(code)
         rows.append({
             "name": code, "label": label,
-            "ref_titre": f"{code} — {_clean(a['Designation']) or 'désignation non renseignée'}",
+            "ref_titre": _clean(a['Designation']) or f"{nature} — désignation non renseignée",
             "ref_marche": " · ".join(pieces) or "Informations contractuelles non encore renseignées.",
             "ref_suivi": (f"Dernier suivi enregistré : {s['Taux_Execution_Physique']} % au {s['Date_Actualisation']:%d/%m/%Y}"
                           if s and s["Date_Actualisation"] else "Aucun suivi enregistré pour cette activité."),
+            "structures": " ".join(structures_de(a["Region"], structures)),
+            "type": a["Categorie"],
         })
+    _libelles_distincts(rows, {a["CODE_ACTIVITE"]: a for a in ref.activities()})
+    sans = [r["name"] for r in rows if not r["structures"]]
+    if sans:
+        raise StructuresError(f"Aucune structure ne couvre ces activités (elles seraient introuvables dans le formulaire) : "
+                              f"{', '.join(sans)}. Ajoutez la structure de leur région dans kobo/structures.csv.")
     return rows
 
 
-def csv_bytes(rows: list[dict]) -> bytes:
+def types_csv_rows(ref: Referentiel, rows: list[dict], structures: list[dict]) -> list[dict]:
+    """Types d'activités (catégories de config.yaml) ayant au moins une activité active ; « structures » = celles qui les voient."""
+    ordre = [x["name"] for x in structures]
+    out = []
+    for code, libelle in ref.cfg.categories.items():
+        sts = {st for r in rows if r["type"] == code for st in r["structures"].split()}
+        if sts:
+            out.append({"name": code, "label": _clean(libelle), "structures": " ".join(x for x in ordre if x in sts)})
+    return out
+
+
+def _libelles_distincts(rows: list[dict], acts: dict) -> None:
+    """Les agents ne voient pas les codes : deux activités au même libellé (même nature, région, département, entreprise)
+    sont distinguées par leurs premières localités, sinon par le montant, sinon par un numéro de lot."""
+    def doublons():
+        vus = {}
+        for r in rows:
+            vus.setdefault(r["label"], []).append(r)
+        return [g for g in vus.values() if len(g) > 1]
+    for groupe in doublons():
+        for r in groupe:
+            loc = [x.strip().title() for x in re.split(r"[,;/]", _clean(acts[r["name"]]["Localite"])) if x.strip()]
+            if loc:
+                r["label"] += f" · {' / '.join(loc[:2])}{'…' if len(loc) > 2 else ''}"      # pas de virgule dans le CSV
+    for groupe in doublons():
+        for r in groupe:
+            m = acts[r["name"]]["Montant_Marche"]
+            if m:
+                r["label"] += f" · {_montant(m)} FCFA"
+    for groupe in doublons():
+        for n, r in enumerate(sorted(groupe, key=lambda x: x["name"]), 1):
+            r["label"] += f" · lot {n}"
+
+
+def csv_bytes(rows: list[dict], columns: list[str] = CSV_COLUMNS) -> bytes:
     buf = io.StringIO(newline="")
-    w = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, lineterminator="\n")
+    w = csv.DictWriter(buf, fieldnames=columns, lineterminator="\n")
     w.writeheader()
     w.writerows(rows)
     return buf.getvalue().encode("utf-8")          # UTF-8 SANS BOM : un BOM casse la colonne « name » côté Kobo Collect
 
 
 def write_activities_csv(ref: Referentiel, path) -> int:
-    rows = activities_csv_rows(ref)
+    """Écrit activites.csv et, à côté, structures.csv (les deux fichiers médias du formulaire)."""
+    structures = load_structures(ref.cfg)
+    rows = activities_csv_rows(ref, structures)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(csv_bytes(rows))
+    (path.parent / STRUCTURES_NAME).write_bytes(csv_bytes(structures, STRUCTURES_COLUMNS))
+    (path.parent / TYPES_NAME).write_bytes(csv_bytes(types_csv_rows(ref, rows, structures), TYPES_COLUMNS))
     return len(rows)
 
 
 # --------------------------------------------------------------------------
 # Formulaire XLSForm
 # --------------------------------------------------------------------------
-SURVEY_HEADER = ["type", "name", "label", "hint", "required", "required_message", "constraint", "constraint_message", "appearance", "calculation", "relevant", "default"]
+SURVEY_HEADER = ["type", "name", "label", "hint", "required", "required_message", "constraint", "constraint_message", "appearance",
+                 "choice_filter", "calculation", "relevant", "default", "parameters"]
 H = lambda **k: [k.get(c, "") for c in SURVEY_HEADER]   # noqa: E731
 SURVEY = [
     H(type="start", name="start"),
     H(type="end", name="end"),
     H(type="begin_group", name="identification", label="Identification"),
-    H(type="text", name="nom_agent", label="Nom et prénoms du technicien", required="yes", constraint="string-length(normalize-space(.)) >= 3",
+    H(type="text", name="nom_agent", label="Nom et prénoms", required="yes", constraint="string-length(normalize-space(.)) >= 3",
       constraint_message="Saisissez votre nom et vos prénoms."),
+    H(type="select_one_from_file " + STRUCTURES_NAME, name="structure", label="Structure",
+      hint="Choisissez votre structure : seules ses activités seront proposées", required="yes", appearance="minimal"),
+    H(type="select_one_from_file " + TYPES_NAME, name="type_activite", label="Type d'activité",
+      hint="Types d'activités suivis par votre structure", required="yes", appearance="minimal",
+      choice_filter=FILTRE_TYPES, relevant="${structure} != ''"),
     H(type="date", name="date_actualisation", label="Date de l'actualisation", hint="Date de la visite ou de la situation décrite", required="yes",
       constraint=". <= today()", constraint_message="La date ne peut pas être dans le futur.", default="today()"),
     H(type="select_one_from_file " + CSV_NAME, name="code_activite", label="Activité suivie",
-      hint="Tapez le code, la région, le département ou l'entreprise pour filtrer", required="yes", appearance="autocomplete"),
+      hint="Activités de ce type pour votre structure ; tapez le département ou l'entreprise pour filtrer", required="yes",
+      appearance="autocomplete", choice_filter=FILTRE_ACTIVITES, relevant="${type_activite} != ''",
+      constraint=(f"selected(pulldata('{CSV_NAME[:-4]}', 'structures', 'name', .), ${{structure}}) "
+                  f"and pulldata('{CSV_NAME[:-4]}', 'type', 'name', .) = ${{type_activite}}"),
+      constraint_message="Cette activité ne correspond pas à la structure ou au type choisi : choisissez à nouveau l'activité."),
     H(type="end_group"),
     H(type="calculate", name="ref_titre", calculation=f"pulldata('{CSV_NAME[:-4]}', 'ref_titre', 'name', ${{code_activite}})"),
     H(type="calculate", name="ref_marche", calculation=f"pulldata('{CSV_NAME[:-4]}', 'ref_marche', 'name', ${{code_activite}})"),
     H(type="calculate", name="ref_suivi", calculation=f"pulldata('{CSV_NAME[:-4]}', 'ref_suivi', 'name', ${{code_activite}})"),
     H(type="note", name="note_reference", label="**${ref_titre}**\n${ref_marche}\n${ref_suivi}", relevant="${code_activite} != ''"),
-    H(type="begin_group", name="avancement", label="Avancement"),
+    H(type="begin_group", name="avancement", label="Etat d'avancement"),
+    H(type="integer", name="taux_execution", label="Taux d'exécution physique actuel (%)", hint="Nombre entier de 0 à 100", required="yes",
+      constraint=". >= 0 and . <= 100", constraint_message="Le taux doit être compris entre 0 et 100."),
     H(type="text", name="observations_techniques", label="Observations techniques",
       hint="Travaux réalisés, activités exécutées, état d'avancement, constats techniques. Un constat par ligne. "
            "Ne pas y mettre les difficultés ni les recommandations.", required="yes", appearance="multiline"),
-    H(type="integer", name="taux_execution", label="Taux d'exécution physique actuel (%)", hint="Nombre entier de 0 à 100", required="yes",
-      constraint=". >= 0 and . <= 100", constraint_message="Le taux doit être compris entre 0 et 100."),
-    H(type="end_group"),
-    H(type="begin_group", name="remarques", label="Remarques (facultatif)"),
     H(type="text", name="commentaires", label="Commentaires généraux", appearance="multiline"),
     H(type="text", name="difficultes", label="Difficultés rencontrées", hint="Laisser vide s'il n'y en a pas", appearance="multiline"),
     H(type="text", name="recommandations", label="Recommandations", appearance="multiline"),
+    *[H(type="image", name=nom, label=f"Photo du site {i}/4", required="yes", parameters="max-pixels=1600")
+      for i, nom in enumerate(("Photo_du_site", "Photo_du_site_001", "Photo_du_site_002", "Photo_du_site_003"), 1)],
     H(type="end_group"),
 ]
 
@@ -140,7 +250,7 @@ def build_xlsform(path, version: str | None = None) -> Path:
     st.append(["form_title", "form_id", "version", "default_language", "instance_name"])
     st.append(["Suivi périodique des activités PCR-CI", FORM_ID, version or datetime.now().strftime("%Y%m%d%H%M"), "French (fr)",
                "concat(${code_activite}, ' - ', format-date(${date_actualisation}, '%d/%m/%Y'))"])
-    for sheet, widths in ((ws, (22, 24, 50, 50, 10, 20, 38, 38, 14, 60, 24, 10)), (st, (40, 24, 16, 18, 70))):
+    for sheet, widths in ((ws, (30, 24, 50, 50, 10, 20, 38, 38, 14, 36, 60, 24, 10, 18)), (st, (40, 24, 16, 18, 70))):
         for i, w in enumerate(widths):
             sheet.column_dimensions[chr(65 + i)].width = w
     path = Path(path)
@@ -234,9 +344,15 @@ class KoboClient:
         return version
 
 
-def sync_to_kobo(client: KoboClient, rows: list[dict], redeploy: bool = True) -> dict:
+def sync_to_kobo(client: KoboClient, rows: list[dict], redeploy: bool = True, structures: list[dict] | None = None,
+                 types: list[dict] | None = None) -> dict:
+    """Envoie structures.csv et types_activite.csv (si fournis) puis activites.csv, et redéploie si demandé."""
     if not rows:
         raise KoboError("Aucune activité active à envoyer : envoi annulé pour ne pas vider la liste des techniciens.")
+    action_s = client.replace_media(STRUCTURES_NAME, csv_bytes(structures, STRUCTURES_COLUMNS)) if structures else None
+    if types:
+        client.replace_media(TYPES_NAME, csv_bytes(types, TYPES_COLUMNS))
     action = client.replace_media(CSV_NAME, csv_bytes(rows))
     version = client.redeploy() if redeploy else None
-    return {"activites": len(rows), "fichier": action, "redeploye": bool(redeploy), "version": version}
+    return {"activites": len(rows), "fichier": action, "redeploye": bool(redeploy), "version": version,
+            "structures": len(structures or []), "fichier_structures": action_s, "types": len(types or [])}

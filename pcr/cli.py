@@ -8,7 +8,7 @@ from pathlib import Path
 from .admin_file import apply_admin_file, export_admin_file
 from .config import load_config
 from .referentiel import Referentiel
-from .kobo_form import KoboClient, KoboError, activities_csv_rows, build_xlsform, sync_to_kobo, write_activities_csv
+from .kobo_form import KoboClient, KoboError, StructuresError, activities_csv_rows, build_xlsform, load_structures, sync_to_kobo, types_csv_rows, write_activities_csv
 from .baseline import import_baseline, import_baseline_from_excel
 from .ingest import ingest, set_statut
 from .seed import seed, write_report
@@ -275,21 +275,30 @@ def main(argv=None) -> int:
     elif a.cmd == "kobo-formulaire":
         print(build_xlsform(cfg.path("kobo_formulaire")))
     elif a.cmd == "kobo-csv":
-        print(f"{write_activities_csv(ref, cfg.path('kobo_csv'))} activités -> {cfg.path('kobo_csv')}")
+        try:
+            n = write_activities_csv(ref, cfg.path('kobo_csv'))
+        except StructuresError as e:
+            print(f"ÉCHEC : {e}")
+            return 1
+        print(f"{n} activités -> {cfg.path('kobo_csv')} ; structures.csv et types_activite.csv -> {cfg.path('kobo_csv').parent}")
     elif a.cmd == "kobo-sync":
         _load_env(Path(a.env))
         for var in ("KOBO_ASSET_UID", "KOBO_TOKEN"):
             if not os.environ.get(var):
                 print(f"Variable manquante : {var} (voir .env.example)")
                 return 2
-        write_activities_csv(ref, cfg.path("kobo_csv"))
         try:
+            write_activities_csv(ref, cfg.path("kobo_csv"))
+            structures = load_structures(cfg)
             client = KoboClient(os.environ.get("KOBO_URL", "https://kf.kobotoolbox.org"), os.environ["KOBO_ASSET_UID"], os.environ["KOBO_TOKEN"])
-            res = sync_to_kobo(client, activities_csv_rows(ref), redeploy=not a.sans_redeploiement)
-        except KoboError as e:
+            rows = activities_csv_rows(ref, structures)
+            res = sync_to_kobo(client, rows, redeploy=not a.sans_redeploiement, structures=structures,
+                               types=types_csv_rows(ref, rows, structures))
+        except (KoboError, StructuresError) as e:
             print(f"ÉCHEC : {e}")
             return 1
-        print(f"Liste envoyée : {res['activites']} activités ({res['fichier']}), redéploiement : {'oui' if res['redeploye'] else 'non'}.")
+        print(f"Listes envoyées : {res['structures']} structures, {res['types']} types, {res['activites']} activités ({res['fichier']}), "
+              f"redéploiement : {'oui' if res['redeploye'] else 'non'}.")
     elif a.cmd == "lister":
         for x in ref.activities():
             print(f"{x['CODE_ACTIVITE']}  {x['Statut']:<8} {x['Departement'] or '—':<22} {x['Entreprise'] or '—'}")

@@ -1,4 +1,4 @@
-"""Téléchargement des photos du site (question « Photo_du_site ») vers data/photos/.
+"""Téléchargement des photos du site (4 questions : Photo_du_site, Photo_du_site_001 à _003) vers data/photos/.
 
 Même principe que suivi_activites_test :
   - la pièce jointe est retrouvée dans « _attachments » par sa question (question_xpath)
@@ -23,6 +23,7 @@ from urllib3.util.retry import Retry
 
 PHOTOS_DIR = Path("data/photos")
 CHAMP_PHOTO = "Photo_du_site"
+CHAMPS_PHOTOS = ("Photo_du_site", "Photo_du_site_001", "Photo_du_site_002", "Photo_du_site_003")   # ordre d'affichage
 TAILLE_MAX = (1600, 1600)            # pixels : suffisant pour le Word, léger pour git
 
 
@@ -102,37 +103,42 @@ def download_photos(submissions: list[dict] | None = None, session: requests.Ses
 
     res = {"telechargees": 0, "deja_presentes": 0, "sans_photo": 0, "erreurs": [], "dossier": str(dest.resolve())}
     for sub in submissions:
-        found = photo_attachment(sub)
-        if not found:
+        trouvees = [f for f in (photo_attachment(sub, c) for c in CHAMPS_PHOTOS) if f]
+        if not trouvees:
             res["sans_photo"] += 1
             continue
-        value, att = found
-        path = dest / local_name(value)
-        if path.is_file():
-            res["deja_presentes"] += 1
-            continue
-        data, last = None, "pas d'URL de téléchargement"
-        for key in ("download_large_url", "download_medium_url", "download_url"):
-            url = att.get(key)
-            if not url:
-                continue
-            try:
-                r = session.get(url, timeout=120)
-                if r.status_code == 200 and r.content:
-                    data = r.content
-                    break
-                last = f"HTTP {r.status_code}"
-            except requests.RequestException as e:
-                last = str(e)
-        if data is None:
-            res["erreurs"].append(f"{value} (soumission {sub.get('_id')}) : {last}")
+        for value, att in trouvees:
+            _telecharger(session, sub, value, att, dest, res)
+    return res
+
+
+def _telecharger(session, sub, value, att, dest: Path, res: dict) -> None:
+    """Télécharge une photo (version « large » de préférence), en JPEG redressé et réduit."""
+    path = dest / local_name(value)
+    if path.is_file():
+        res["deja_presentes"] += 1
+        return
+    data, last = None, "pas d'URL de téléchargement"
+    for key in ("download_large_url", "download_medium_url", "download_url"):
+        url = att.get(key)
+        if not url:
             continue
         try:
-            path.write_bytes(to_jpeg(data))
-            res["telechargees"] += 1
-        except Exception as e:                              # noqa: BLE001 : image illisible
-            res["erreurs"].append(f"{value} (soumission {sub.get('_id')}) : image illisible ({e})")
-    return res
+            r = session.get(url, timeout=120)
+            if r.status_code == 200 and r.content:
+                data = r.content
+                break
+            last = f"HTTP {r.status_code}"
+        except requests.RequestException as e:
+            last = str(e)
+    if data is None:
+        res["erreurs"].append(f"{value} (soumission {sub.get('_id')}) : {last}")
+        return
+    try:
+        path.write_bytes(to_jpeg(data))
+        res["telechargees"] += 1
+    except Exception as e:                              # noqa: BLE001 : image illisible
+        res["erreurs"].append(f"{value} (soumission {sub.get('_id')}) : image illisible ({e})")
 
 
 def main(argv=None) -> int:

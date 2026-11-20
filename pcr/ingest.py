@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
+from .kobo_photos import CHAMPS_PHOTOS
 from .referentiel import Referentiel, to_date
 
 DATE_MIN = date(2020, 1, 1)
@@ -55,7 +56,8 @@ def evaluate(sub: dict, acts: dict, valid_rows: list[dict], today: date) -> tupl
     rec = {"CODE_ACTIVITE": code, "Observations_Techniques": _txt(f.get("observations_techniques")), "Commentaires": _txt(f.get("commentaires")),
            "Difficultes": _txt(f.get("difficultes")), "Recommandations": _txt(f.get("recommandations")), "Nom_Agent": _txt(f.get("nom_agent")),
            "Date_Actualisation": None, "Taux_Execution_Physique": None,
-           "Photo_du_site": _txt(f.get("Photo_du_site"))}  # nom du fichier image fourni par Kobo
+           **{c: _txt(f.get(c)) for c in CHAMPS_PHOTOS},  # noms des fichiers images fournis par Kobo (4 photos)
+           "Structure": _txt(f.get("structure") or f.get("Structure"))}  # code de la liste (UTR_BER…) ; ancien champ texte « Structure »
     problems = []
     if is_rejected_in_kobo(sub):
         problems.append("soumission refusée dans Kobo")
@@ -99,7 +101,7 @@ def ingest(ref: Referentiel, submissions: list[dict], today: date | None = None,
     acts = {a["CODE_ACTIVITE"]: a for a in ref.activities()}
     rows = ref.base.rows("Suivi_Activites")
     known = {str(r["ID_SOUMISSION_KOBO"]) for r in rows}
-    sans_photo = {str(r["ID_SOUMISSION_KOBO"]): r["_r"] for r in rows if not r.get("Photo_du_site")}
+    sans_photo = {str(r["ID_SOUMISSION_KOBO"]): r for r in rows if not all(r.get(c) for c in CHAMPS_PHOTOS)}
     rep = Report(recuperees=len(submissions))
     for sub in sorted(submissions, key=lambda s: (str(s.get("_submission_time") or ""), int(s.get("_id") or 0))):
         sid = sub.get("_id")
@@ -107,10 +109,12 @@ def ingest(ref: Referentiel, submissions: list[dict], today: date | None = None,
             rep.nouvelles.append(("?", None, "REJETE", "soumission sans identifiant Kobo (_id)"))
             continue
         if str(sid) in known:
-            # Rattrapage : soumission intégrée avant l'ajout de la colonne photo
-            photo = _txt(flatten(sub).get("Photo_du_site"))
-            if photo and str(sid) in sans_photo:
-                ref.base.update("Suivi_Activites", sans_photo.pop(str(sid)), {"Photo_du_site": photo})
+            # Rattrapage : soumission intégrée avant l'ajout des colonnes photos
+            if str(sid) in sans_photo:
+                ligne, f = sans_photo.pop(str(sid)), flatten(sub)
+                ajout = {c: _txt(f.get(c)) for c in CHAMPS_PHOTOS if not ligne.get(c) and _txt(f.get(c))}
+                if ajout:
+                    ref.base.update("Suivi_Activites", ligne["_r"], ajout)
             rep.ignorees += 1
             continue
         valid = [r for r in ref.base.rows("Suivi_Activites") if r["Statut_Traitement"] == "VALIDE"]

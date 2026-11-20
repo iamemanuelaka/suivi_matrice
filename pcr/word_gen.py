@@ -20,6 +20,7 @@ from docx.shared import Cm, Inches, Pt, RGBColor
 
 from .calculs import indicateurs_delai
 from .config import normalize
+from .kobo_photos import CHAMPS_PHOTOS
 from .referentiel import Referentiel
 
 FONT, SIZE = "Arial", 9
@@ -72,7 +73,7 @@ def build_view(ref: Referentiel, a: dict, s: dict | None, au: date) -> dict:
         # Kobo : « RAS » si le technicien n'a rien signalé ; suivi de référence : on reprend le Word tel quel
         "difficultes": ((s["Difficultes"] or ("" if baseline else "RAS")) if s else None),
         "recommandations": (s["Recommandations"] or "") if s else None,
-        "photo": (s.get("Photo_du_site") or None) if s else None,  # nom de fichier de la photo du site
+        "photos": [s[c] for c in CHAMPS_PHOTOS if s.get(c)] if s else [],   # jusqu'à 4 photos du site, dans l'ordre du formulaire
     }
 
 # --------------------------------------------------------------------------
@@ -160,8 +161,62 @@ def _cell3(cell, v):
     if v["recommandations"]:
         _labelled(cell, "Recommandations :", v["recommandations"])
 
-def _add_photo(cell, photo_filename: str | None) -> None:
-    """Insère la photo du site dans la cellule de la colonne « Photo » (vide si aucune photo).
+def _add_photos(cell, noms: list) -> None:
+    """Colonne « Photo » : une photo occupe toute la cellule ; 2 à 4 photos sont rangées en 2 × 2 (cellule divisée en 4).
+    Vide si aucune photo. Les originaux restent dans data/photos/ si quelqu'un veut les voir en grand."""
+    noms = [n for n in noms if n][:4]
+    if len(noms) <= 1:
+        _add_photo(cell, noms[0] if noms else None, boite=(WIDTHS_CM[3] - 0.5, 4.8))   # une photo : toute la largeur, 4,8 cm de haut au plus
+        return
+    case_l = (WIDTHS_CM[3] - 0.4) / 2                     # deux cases par ligne dans la colonne « Photo »
+    boite = (case_l - 0.2, 2.6)                            # chaque photo tient dans 3,1 × 2,6 cm, proportions gardées
+    grille = cell.add_table(rows=(len(noms) + 1) // 2, cols=2)
+    _sans_bordure(grille, largeur_cm=case_l * 2)
+    for col in grille.columns:
+        col.width = Cm(case_l)
+    for i, nom in enumerate(noms):
+        sous = grille.cell(i // 2, i % 2)
+        sous.width = Cm(case_l)
+        sous.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        _add_photo(sous, nom, boite=boite)
+    if not cell.paragraphs[0].text and len(cell.paragraphs) > 1:                       # pas de ligne vide au-dessus de la grille
+        p0 = cell.paragraphs[0]._element
+        p0.getparent().remove(p0)
+
+
+def _sans_bordure(table, largeur_cm: float) -> None:
+    """Grille de photos : sans bordure, largeur fixe (ne déborde jamais de la cellule)."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    table.autofit = False
+    tblPr = table._tbl.tblPr
+    for tag in ("w:tblW", "w:tblLayout"):
+        for old in tblPr.findall(qn(tag)):
+            tblPr.remove(old)
+    tw = OxmlElement("w:tblW")
+    tw.set(qn("w:w"), str(int(largeur_cm * 567)))
+    tw.set(qn("w:type"), "dxa")
+    tblPr.append(tw)
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    tblPr.append(layout)
+    borders = OxmlElement("w:tblBorders")
+    for cote in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        b = OxmlElement(f"w:{cote}")
+        b.set(qn("w:val"), "nil")
+        borders.append(b)
+    tblPr.append(borders)
+    marges = OxmlElement("w:tblCellMar")
+    for cote in ("left", "right"):
+        m = OxmlElement(f"w:{cote}")
+        m.set(qn("w:w"), "28")
+        m.set(qn("w:type"), "dxa")
+        marges.append(m)
+    tblPr.append(marges)
+
+
+def _add_photo(cell, photo_filename: str | None, boite: tuple | None = None) -> None:
+    """Insère une photo du site dans la cellule (vide si aucune photo).
     Gère les formats courants (JPEG, PNG, GIF, BMP, TIFF, WebP…).
     Les photos manquantes ou illisibles ne bloquent jamais la génération.
     """
@@ -214,7 +269,17 @@ def _add_photo(cell, photo_filename: str | None) -> None:
         p = _para(cell)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = p.add_run()
-        run.add_picture(str(path_to_insert), width=Cm(WIDTHS_CM[3] - 0.5))  # occupe la colonne « Photo »
+        if boite:                                           # un quart de cellule : la photo tient dans la case
+            from PIL import Image as _Im
+            with _Im.open(path_to_insert) as im:
+                w, h = im.size
+            l, hmax = boite
+            if h and w / h < l / hmax:
+                run.add_picture(str(path_to_insert), height=Cm(hmax))
+            else:
+                run.add_picture(str(path_to_insert), width=Cm(l))
+        else:
+            run.add_picture(str(path_to_insert), width=Cm(WIDTHS_CM[3] - 0.5))
 
         # Nettoyage du temporaire si créé
         if path_to_insert != photo_path and path_to_insert.exists():
@@ -290,7 +355,7 @@ def render(ref: Referentiel, cat: str, au: date, path) -> Path:
             _labelled(rows[2].cells[1], "Délai consommé :", v["delai_conso"], bold_value=True)
         _cell3(c3, v)
         c4.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-        _add_photo(c4, v.get("photo"))
+        _add_photos(c4, v.get("photos") or [])
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)
