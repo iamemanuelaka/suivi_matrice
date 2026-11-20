@@ -9,6 +9,7 @@ chemins:
   sauvegardes: data/sauvegardes
   sorties: sorties                           # documents générés (Word, Excel)
   kobo_csv: data/kobo/activites.csv          # liste des activités envoyée à Kobo (fichier média du formulaire)
+  kobo_structures: kobo/structures.csv      # structures proposées dans le formulaire (UTR des régions…) : à compléter à la main
   kobo_formulaire: kobo/questionnaire_suivi_pcr.xlsx
 
 # Catégories confirmées (2 lettres). Une matrice Word par catégorie (renseignée en Phase 5).
