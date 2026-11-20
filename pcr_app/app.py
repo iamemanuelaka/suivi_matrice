@@ -481,7 +481,7 @@ async def suivis():
             donnees.update({str(r["ID_SOUMISSION_KOBO"]): r for r in rows})
             table.rows = [{"id": str(r["ID_SOUMISSION_KOBO"]), "date": d(r["Date_Actualisation"]), "code": r["CODE_ACTIVITE"] or "?",
                            "dep": r["Departement"] or "", "agent": r["Nom_Agent"] or "", "taux": pct(r["Taux_Execution_Physique"]),
-                           "photo": "📷" if r["photo_chemin"] else "", "statut": STATUTS_SUIVI.get(r["Statut_Traitement"], r["Statut_Traitement"]),
+                           "photo": f"📷 {len(r['photos_chemins'])}" if r["photos_chemins"] else "", "statut": STATUTS_SUIVI.get(r["Statut_Traitement"], r["Statut_Traitement"]),
                            "motif": r["Motif_Rejet"] or ""} for r in rows]
 
         def detail(e):
@@ -497,6 +497,7 @@ async def suivis():
                 with ui.row().classes("w-full gap-6 no-wrap items-start"):
                     with ui.column().classes("flex-1 gap-2"):
                         for lib, val in (("Date de la visite", d(r["Date_Actualisation"])), ("Agent", r["Nom_Agent"]),
+                                         ("Structure", r.get("Structure_libelle")),
                                          ("Taux d'exécution physique", pct(r["Taux_Execution_Physique"])),
                                          ("Fiche Kobo n°", r["ID_SOUMISSION_KOBO"]), ("Reçue le", d(r["Date_Importation"]))):
                             with ui.row().classes("gap-2"):
@@ -510,8 +511,11 @@ async def suivis():
                             ui.label("Motif du rejet" if r["Statut_Traitement"] == "REJETE" else "Pourquoi cette fiche est à vérifier") \
                                 .classes("font-semibold mt-2 text-negative")
                             ui.label(r["Motif_Rejet"]).classes("text-sm")
-                    if r["photo_chemin"]:
-                        ui.image(Path(r["photo_chemin"])).classes("w-72 rounded shadow")
+                    if r["photos_chemins"]:
+                        with ui.grid(columns=2 if len(r["photos_chemins"]) > 1 else 1).classes("w-80 gap-2 shrink-0"):
+                            for chemin in r["photos_chemins"]:
+                                img = ui.image(Path(chemin)).classes("w-full rounded shadow cursor-zoom-in")
+                                img.on("click", lambda c=chemin: S.ouvrir(Path(c)))          # ouvre la photo en grand
                 motif = ui.input("Motif du rejet (obligatoire pour rejeter)").classes("w-full")
                 with ui.row().classes("w-full justify-end gap-2"):
                     ui.button("Fermer", on_click=dlg.close).props("flat")

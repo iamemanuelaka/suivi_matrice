@@ -19,6 +19,7 @@ from pathlib import Path
 from pcr.calculs import indicateurs_delai
 from pcr.config import load_config
 from pcr.ingest import set_statut
+from pcr.kobo_photos import CHAMPS_PHOTOS
 from pcr.referentiel import EDITABLE, PGES_VALEURS, STATUTS, STATUTS_CHANTIER, Referentiel
 from pcr.store import Base
 from pcr.word_gen import latest_valid
@@ -213,6 +214,11 @@ class Services:
         with _LOCK:
             ref = self._ref()
             acts = {a["CODE_ACTIVITE"]: a for a in ref.activities()}
+            try:
+                from pcr.kobo_form import load_structures
+                libelles = {x["name"]: x["label"] for x in load_structures(ref.cfg)}
+            except Exception:                                                # noqa: BLE001 : liste absente ou invalide
+                libelles = {}
             out = []
             for r in ref.base.rows("Suivi_Activites"):
                 if statut and r["Statut_Traitement"] != statut:
@@ -220,7 +226,9 @@ class Services:
                 a = acts.get(r["CODE_ACTIVITE"]) or {}
                 out.append({**{k: v for k, v in r.items() if k != "_r"},
                             "Departement": a.get("Departement"), "Entreprise": a.get("Entreprise"),
-                            "photo_chemin": str(self.photo(r.get("Photo_du_site"))) if self.photo(r.get("Photo_du_site")) else None})
+                            "Structure_libelle": libelles.get(r.get("Structure") or "", r.get("Structure")),
+                            "photos_chemins": [str(c) for c in (self.photo(r.get(ch)) for ch in CHAMPS_PHOTOS) if c],
+                            "photo_chemin": next((str(c) for c in (self.photo(r.get(ch)) for ch in CHAMPS_PHOTOS) if c), None)})
             return sorted(out, key=lambda r: (str(r["Date_Importation"] or ""), str(r["ID_SOUMISSION_KOBO"])), reverse=True)
 
     def photo(self, nom: str | None) -> Path | None:
@@ -375,18 +383,23 @@ class Services:
         self._ecrire_etat(None)
 
     def envoyer_liste_kobo(self) -> str:
-        from pcr.kobo_form import KoboClient, KoboError, activities_csv_rows, sync_to_kobo, write_activities_csv
+        from pcr.kobo_form import (KoboClient, KoboError, StructuresError, activities_csv_rows, load_structures, sync_to_kobo, types_csv_rows,
+                                   write_activities_csv)
         s = self.settings
         if not s.kobo_ok:
             raise AppError("Renseignez l'UID du formulaire et le jeton KoboToolbox dans Paramètres → KoboToolbox.")
         with _LOCK:
             ref = self._ref()
-            write_activities_csv(ref, self.cfg.path("kobo_csv"))
             try:
-                r = sync_to_kobo(KoboClient(s.kobo_url, s.kobo_asset_uid, s.kobo_jeton), activities_csv_rows(ref), redeploy=True)
-            except KoboError as e:
+                write_activities_csv(ref, self.cfg.path("kobo_csv"))
+                structures = load_structures(ref.cfg)
+                rows = activities_csv_rows(ref, structures)
+                r = sync_to_kobo(KoboClient(s.kobo_url, s.kobo_asset_uid, s.kobo_jeton), rows, redeploy=True,
+                                 structures=structures, types=types_csv_rows(ref, rows, structures))
+            except (KoboError, StructuresError) as e:
                 raise AppError(str(e)) from e
-        return f"Liste envoyée à Kobo : {r['activites']} activités, formulaire redéployé : {'oui' if r['redeploye'] else 'non'}."
+        return (f"Listes envoyées à Kobo : {r['structures']} structures, {r['types']} types, {r['activites']} activités, "
+                f"formulaire redéployé : {'oui' if r['redeploye'] else 'non'}.")
 
     def tester_kobo(self) -> str:
         from pcr.kobo_form import KoboClient, KoboError
